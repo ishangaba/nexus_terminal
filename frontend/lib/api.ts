@@ -37,11 +37,38 @@ export interface TickerSnapshot {
   ai_brief: string;
 }
 
-export async function fetchTicker(symbol: string): Promise<TickerSnapshot> {
-  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}`);
+export interface WatchlistQuote {
+  symbol: string;
+  last: number | null;
+  change: number | null;
+  change_pct: number | null;
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? `Request failed with status ${res.status}`);
   }
   return res.json();
+}
+
+export async function fetchTicker(symbol: string): Promise<TickerSnapshot> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}`);
+  return handleResponse<TickerSnapshot>(res);
+}
+
+export async function fetchWatchlist(): Promise<WatchlistQuote[]> {
+  const res = await fetch(`${API_BASE}/api/v1/watchlist`);
+  const data = await handleResponse<{ watchlist: WatchlistQuote[] }>(res);
+  return data.watchlist;
+}
+
+export async function addToWatchlist(symbol: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/v1/watchlist/${encodeURIComponent(symbol)}`, { method: "POST" });
+  await handleResponse(res);
+}
+
+export async function removeFromWatchlist(symbol: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/v1/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" });
+  await handleResponse(res);
 }

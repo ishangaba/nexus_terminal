@@ -3,22 +3,12 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from db.database import get_connection
-from db.models import insert_price_snapshot
+from db.models import get_watchlist, insert_price_snapshot
 from services import finnhub
 
 logger = logging.getLogger("poller")
 
 POLL_INTERVAL_MINUTES = 5
-
-
-def _tracked_symbols() -> list[str]:
-    conn = get_connection()
-    try:
-        rows = conn.execute("SELECT symbol FROM ticker").fetchall()
-    finally:
-        conn.close()
-    return [row["symbol"] for row in rows]
 
 
 async def _refresh_symbol(symbol: str) -> None:
@@ -28,7 +18,7 @@ async def _refresh_symbol(symbol: str) -> None:
 
 
 def refresh_watchlist() -> None:
-    symbols = _tracked_symbols()
+    symbols = get_watchlist()
     if not symbols:
         return
     logger.info("Refreshing price snapshots for %d tracked symbol(s)", len(symbols))

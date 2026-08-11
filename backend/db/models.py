@@ -102,6 +102,45 @@ def upsert_chart_cache(symbol: str, chart_data: list) -> None:
         conn.close()
 
 
+def add_to_watchlist(symbol: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)", (symbol,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_from_watchlist(symbol: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_watchlist() -> list[str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT symbol FROM watchlist ORDER BY added_at").fetchall()
+    finally:
+        conn.close()
+    return [row["symbol"] for row in rows]
+
+
+def get_latest_price_snapshot(symbol: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM price_snapshot WHERE symbol = ? ORDER BY fetched_at DESC LIMIT 1", (symbol,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
 def insert_news_item(
     symbol: str, headline: str, source: str, url: str, published_at: str, sentiment_score: float | None
 ) -> None:
