@@ -3,12 +3,14 @@ from datetime import datetime, timedelta, timezone
 
 from db.models import (
     get_cached_chart,
+    get_cached_filings,
     get_cached_fundamentals,
     upsert_chart_cache,
+    upsert_filings_cache,
     upsert_fundamentals_cache,
     upsert_ticker,
 )
-from services import alpha_vantage, claude_analyst, finnhub
+from services import alpha_vantage, claude_analyst, finnhub, sec_edgar
 
 MAX_NEWS_ITEMS = 8
 CHART_DAYS = 30
@@ -126,7 +128,23 @@ async def _get_news(symbol: str) -> list[dict]:
     return news
 
 
-async def get_ticker_snapshot(symbol: str) -> dict:
+async def _get_filings(symbol: str) -> list[dict]:
+    cached = get_cached_filings(symbol)
+    if cached is not None:
+        return cached
+
+    try:
+        filings = await sec_edgar.get_recent_filings(symbol)
+    except Exception:
+        return []
+
+    if filings:
+        upsert_filings_cache(symbol, filings)
+    return filings
+
+
+async def gather_context(symbol: str) -> dict:
+    """Everything needed to ground an AI brief or a Q&A answer, minus the AI call itself."""
     symbol = symbol.upper()
 
     quote = await finnhub.get_quote(symbol)
@@ -136,6 +154,7 @@ async def get_ticker_snapshot(symbol: str) -> dict:
     fundamentals = await _get_fundamentals(symbol)
     chart_data = await _get_chart_data(symbol)
     news = await _get_news(symbol)
+    filings = await _get_filings(symbol)
 
     price = {
         "last": quote.get("c"),
@@ -146,13 +165,26 @@ async def get_ticker_snapshot(symbol: str) -> dict:
         else datetime.now(timezone.utc).isoformat(),
     }
 
-    ai_brief = await asyncio.to_thread(claude_analyst.generate_brief, symbol, price, fundamentals, news)
-
     return {
         "symbol": symbol,
         "price": price,
         "fundamentals": fundamentals,
         "chart_data": chart_data,
         "news": news,
-        "ai_brief": ai_brief,
+        "filings": filings,
     }
+
+
+async def get_ticker_snapshot(symbol: str) -> dict:
+    context = await gather_context(symbol)
+
+    ai_brief = await asyncio.to_thread(
+        claude_analyst.generate_brief,
+        context["symbol"],
+        context["price"],
+        context["fundamentals"],
+        context["news"],
+        context["filings"],
+    )
+
+    return {**context, "ai_brief": ai_brief}

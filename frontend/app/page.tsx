@@ -8,6 +8,8 @@ import NewsFeed from "@/components/NewsFeed";
 import AIBrief from "@/components/AIBrief";
 import Watchlist from "@/components/Watchlist";
 import Skeleton from "@/components/Skeleton";
+import Filings from "@/components/Filings";
+import AskBox from "@/components/AskBox";
 import { addToWatchlist, fetchTicker, TickerSnapshot } from "@/lib/api";
 
 export default function Home() {
@@ -79,6 +81,8 @@ export default function Home() {
             </button>
             <PriceChart chartData={data.chart_data} />
             <AIBrief brief={data.ai_brief} />
+            <AskBox symbol={data.symbol} />
+            <Filings filings={data.filings} />
             <NewsFeed news={data.news} />
           </div>
         )}

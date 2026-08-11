@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db.database import init_db
 from jobs.poller import start_scheduler
-from routers import ticker, watchlist
+from routers import ask, ticker, watchlist
 
 app = FastAPI(title="Nexus Terminal API")
 app.add_middleware(
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 app.include_router(ticker.router)
 app.include_router(watchlist.router)
+app.include_router(ask.router)
 
 
 @app.on_event("startup")

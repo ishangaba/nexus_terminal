@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from db.database import get_connection
 
 FUNDAMENTALS_TTL_HOURS = 20
+FILINGS_TTL_HOURS = 12
 
 
 def upsert_ticker(symbol: str, name: str = "", sector: str = "") -> None:
@@ -96,6 +97,37 @@ def upsert_chart_cache(symbol: str, chart_data: list) -> None:
             ON CONFLICT(symbol) DO UPDATE SET chart_json=excluded.chart_json, fetched_at=CURRENT_TIMESTAMP
             """,
             (symbol, json.dumps(chart_data)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_cached_filings(symbol: str) -> list | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM filings_cache WHERE symbol = ?", (symbol,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    fetched_at = datetime.fromisoformat(row["fetched_at"]).replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - fetched_at > timedelta(hours=FILINGS_TTL_HOURS):
+        return None
+    return json.loads(row["filings_json"])
+
+
+def upsert_filings_cache(symbol: str, filings: list) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO filings_cache (symbol, filings_json, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(symbol) DO UPDATE SET filings_json=excluded.filings_json, fetched_at=CURRENT_TIMESTAMP
+            """,
+            (symbol, json.dumps(filings)),
         )
         conn.commit()
     finally:

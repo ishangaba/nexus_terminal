@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS watchlist (
     symbol TEXT PRIMARY KEY,
     added_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS filings_cache (
+    symbol TEXT PRIMARY KEY,
+    filings_json TEXT,
+    fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
