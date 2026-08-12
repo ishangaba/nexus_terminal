@@ -1,6 +1,8 @@
 import json
+from typing import Literal
 
 import anthropic
+from pydantic import BaseModel
 
 from config import settings
 
@@ -9,6 +11,7 @@ _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 BRIEF_MODEL = "claude-sonnet-5"
 ASK_MODEL = "claude-sonnet-5"
 SENTIMENT_MODEL = "claude-haiku-4-5"
+EXTRACTION_MODEL = "claude-haiku-4-5"
 
 BRIEF_SYSTEM_PROMPT = (
     "You are a financial analyst assistant. You will be given real, current data "
@@ -30,22 +33,69 @@ SENTIMENT_SYSTEM_PROMPT = (
 ASK_SYSTEM_PROMPT = (
     "You are a financial analyst assistant answering a user's question about a specific "
     "stock. You are given real, current data: price action, fundamentals, recent news with "
-    "sentiment scores, and recent SEC filings (10-K/10-Q/8-K/Form 4 with links). Answer the "
-    "question using ONLY this data. If the data doesn't contain enough information to answer, "
-    "say so plainly rather than speculating or using outside knowledge. Cite specific figures "
-    "or filings where relevant. Keep the answer under 150 words. Never give financial advice "
-    "or price predictions."
+    "sentiment scores, recent SEC filings (10-K/10-Q/8-K/Form 4 with links), and — when "
+    "available — a company relationship graph (subsidiaries from SEC filings, federal "
+    "contracts from USASpending.gov, and supplier/competitor/partner relationships inferred "
+    "from news). Answer the question using ONLY this data. If the data doesn't contain enough "
+    "information to answer, say so plainly rather than speculating or using outside knowledge. "
+    "Cite specific figures, filings, or graph relationships where relevant. Keep the answer "
+    "under 150 words. Never give financial advice or price predictions."
+)
+
+GRAPH_INSIGHTS_SYSTEM_PROMPT = (
+    "You are a financial analyst assistant. You will be given a company's relationship graph: "
+    "its subsidiaries (from SEC filings), federal government contracts (from USASpending.gov), "
+    "and supplier/competitor/partner relationships inferred from recent news. Write a single "
+    "tight paragraph (max 90 words) highlighting what's analytically interesting in this "
+    "structure — e.g. notable geographic concentration of subsidiaries, meaningful government "
+    "contract exposure, or a competitive/supply relationship worth knowing about. Ground every "
+    "claim in the provided data only. If the graph is sparse or unremarkable, say so briefly "
+    "rather than padding. Never give financial advice."
 )
 
 
-def _build_context_payload(symbol: str, price: dict, fundamentals: dict, news: list[dict], filings: list[dict]) -> dict:
+def _summarize_graph(graph: dict, center_symbol: str) -> dict:
+    node_by_id = {n["id"]: n for n in graph.get("nodes", [])}
+    subsidiaries = []
+    federal_contracts = []
+    related_companies = []
+
+    for edge in graph.get("edges", []):
+        source = node_by_id.get(edge["source"])
+        target = node_by_id.get(edge["target"])
+        etype = edge["type"]
+
+        if etype == "SUBSIDIARY_OF" and source:
+            subsidiaries.append(source["label"])
+        elif etype == "HAS_CONTRACT" and target:
+            federal_contracts.append({"agency": target["label"], "amount": edge.get("amount"), "date": edge.get("date")})
+        elif etype in ("SUPPLIES_TO", "COMPETES_WITH", "PARTNERS_WITH"):
+            other = target if source and source["id"] == center_symbol else source
+            if other:
+                related_companies.append(
+                    {"company": other["label"], "relationship": etype, "evidence": edge.get("evidence")}
+                )
+
     return {
+        "subsidiaries": subsidiaries,
+        "federal_contracts": federal_contracts,
+        "related_companies": related_companies,
+    }
+
+
+def _build_context_payload(
+    symbol: str, price: dict, fundamentals: dict, news: list[dict], filings: list[dict], graph: dict | None = None
+) -> dict:
+    payload = {
         "symbol": symbol,
         "price": price,
         "fundamentals": fundamentals,
         "news": [{"headline": n["headline"], "sentiment_score": n["sentiment_score"]} for n in news],
         "recent_sec_filings": filings,
     }
+    if graph:
+        payload["company_graph"] = _summarize_graph(graph, symbol)
+    return payload
 
 
 def generate_brief(symbol: str, price: dict, fundamentals: dict, news: list[dict], filings: list[dict] | None = None) -> str:
@@ -62,9 +112,15 @@ def generate_brief(symbol: str, price: dict, fundamentals: dict, news: list[dict
 
 
 def answer_question(
-    symbol: str, price: dict, fundamentals: dict, news: list[dict], filings: list[dict], question: str
+    symbol: str,
+    price: dict,
+    fundamentals: dict,
+    news: list[dict],
+    filings: list[dict],
+    question: str,
+    graph: dict | None = None,
 ) -> str:
-    payload = _build_context_payload(symbol, price, fundamentals, news, filings)
+    payload = _build_context_payload(symbol, price, fundamentals, news, filings, graph)
     response = _client.messages.create(
         model=ASK_MODEL,
         max_tokens=350,
@@ -74,6 +130,83 @@ def answer_question(
         messages=[{"role": "user", "content": f"Data: {json.dumps(payload)}\n\nQuestion: {question}"}],
     )
     return next((b.text for b in response.content if b.type == "text"), "")
+
+
+def generate_graph_insights(symbol: str, graph: dict) -> str:
+    summary = _summarize_graph(graph, symbol)
+    if not any(summary.values()):
+        return "No notable subsidiary, government contract, or related-company signal found for this ticker yet."
+
+    response = _client.messages.create(
+        model=SENTIMENT_MODEL,
+        max_tokens=250,
+        system=GRAPH_INSIGHTS_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": json.dumps({"symbol": symbol, "graph_summary": summary})}],
+    )
+    return next((b.text for b in response.content if b.type == "text"), "")
+
+
+class SubsidiaryExtraction(BaseModel):
+    subsidiaries: list[str]
+
+
+SUBSIDIARY_EXTRACTION_PROMPT = (
+    "You will be given the text of an SEC Exhibit 21 filing, which lists a company's "
+    "subsidiaries. Extract just the subsidiary company names, exactly as written — no "
+    "jurisdictions, no explanatory text. If the text contains no subsidiary list, return "
+    "an empty array."
+)
+
+
+def extract_subsidiaries(exhibit_text: str) -> list[str]:
+    response = _client.messages.parse(
+        model=EXTRACTION_MODEL,
+        max_tokens=2000,
+        system=SUBSIDIARY_EXTRACTION_PROMPT,
+        messages=[{"role": "user", "content": exhibit_text}],
+        output_format=SubsidiaryExtraction,
+    )
+    if response.parsed_output is None:
+        return []
+    return response.parsed_output.subsidiaries
+
+
+class NewsRelationship(BaseModel):
+    other_ticker: str | None
+    relationship: Literal["SUPPLIES_TO", "COMPETES_WITH", "PARTNERS_WITH"]
+    evidence: str
+
+
+class RelationshipExtraction(BaseModel):
+    relationships: list[NewsRelationship]
+
+
+RELATIONSHIP_EXTRACTION_PROMPT = (
+    "You will be given a stock ticker and a list of recent news headlines about it. "
+    "Identify any OTHER publicly traded companies mentioned that have a clear "
+    "SUPPLIES_TO, COMPETES_WITH, or PARTNERS_WITH relationship with the given ticker, "
+    "based only on what the headline states or clearly implies. For each, give the "
+    "other company's stock ticker symbol ONLY if you're confident of it — otherwise "
+    "omit that relationship entirely (set other_ticker to null and it will be dropped). "
+    "Skip vague or unrelated mentions. Most headlines will yield zero relationships — "
+    "that's fine, return an empty array rather than guessing."
+)
+
+
+def extract_relationships(symbol: str, headlines: list[str]) -> list[NewsRelationship]:
+    if not headlines:
+        return []
+    payload = {"symbol": symbol, "headlines": headlines}
+    response = _client.messages.parse(
+        model=EXTRACTION_MODEL,
+        max_tokens=1000,
+        system=RELATIONSHIP_EXTRACTION_PROMPT,
+        messages=[{"role": "user", "content": json.dumps(payload)}],
+        output_format=RelationshipExtraction,
+    )
+    if response.parsed_output is None:
+        return []
+    return [r for r in response.parsed_output.relationships if r.other_ticker]
 
 
 def score_sentiment(headline: str) -> float:

@@ -5,21 +5,31 @@ from db.database import get_connection
 
 FUNDAMENTALS_TTL_HOURS = 20
 FILINGS_TTL_HOURS = 12
+GRAPH_BUILD_TTL_HOURS = 24 * 7  # subsidiary/contract data barely changes; rebuild weekly
 
 
-def upsert_ticker(symbol: str, name: str = "", sector: str = "") -> None:
+def upsert_ticker(symbol: str, name: str = "", sector: str = "", country: str = "") -> None:
     conn = get_connection()
     try:
         conn.execute(
             """
-            INSERT INTO ticker (symbol, name, sector) VALUES (?, ?, ?)
-            ON CONFLICT(symbol) DO UPDATE SET name=excluded.name, sector=excluded.sector
+            INSERT INTO ticker (symbol, name, sector, country) VALUES (?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET name=excluded.name, sector=excluded.sector, country=excluded.country
             """,
-            (symbol, name, sector),
+            (symbol, name, sector, country),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def get_ticker(symbol: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ticker WHERE symbol = ?", (symbol,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
 
 
 def insert_price_snapshot(symbol: str, last_price: float, change: float, change_pct: float) -> None:
@@ -128,6 +138,33 @@ def upsert_filings_cache(symbol: str, filings: list) -> None:
             ON CONFLICT(symbol) DO UPDATE SET filings_json=excluded.filings_json, fetched_at=CURRENT_TIMESTAMP
             """,
             (symbol, json.dumps(filings)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def is_graph_stale(symbol: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT built_at FROM graph_build_cache WHERE symbol = ?", (symbol,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return True
+    built_at = datetime.fromisoformat(row["built_at"]).replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - built_at > timedelta(hours=GRAPH_BUILD_TTL_HOURS)
+
+
+def mark_graph_built(symbol: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO graph_build_cache (symbol, built_at) VALUES (?, CURRENT_TIMESTAMP)
+            ON CONFLICT(symbol) DO UPDATE SET built_at=CURRENT_TIMESTAMP
+            """,
+            (symbol,),
         )
         conn.commit()
     finally:

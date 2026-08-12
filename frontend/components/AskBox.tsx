@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { askAboutTicker } from "@/lib/api";
+import { askAboutTicker, CompanyGraph } from "@/lib/api";
 import { decodeHtmlEntities } from "@/lib/text";
 
 interface AskBoxProps {
   symbol: string;
+  graph?: CompanyGraph | null;
 }
 
-export default function AskBox({ symbol }: AskBoxProps) {
+export default function AskBox({ symbol, graph }: AskBoxProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,7 +24,7 @@ export default function AskBox({ symbol }: AskBoxProps) {
     setError(null);
     setAnswer(null);
     try {
-      const result = await askAboutTicker(symbol, trimmed);
+      const result = await askAboutTicker(symbol, trimmed, graph);
       setAnswer(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get an answer");
@@ -42,7 +43,11 @@ export default function AskBox({ symbol }: AskBoxProps) {
           type="text"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder={`e.g. What's driving ${symbol} today?`}
+          placeholder={
+            graph
+              ? `e.g. Does ${symbol} have government contract exposure?`
+              : `e.g. What's driving ${symbol} today?`
+          }
           maxLength={500}
           className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
         />
@@ -58,6 +63,11 @@ export default function AskBox({ symbol }: AskBoxProps) {
       {error && <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{error}</p>}
       {answer && (
         <p className="mt-3 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{decodeHtmlEntities(answer)}</p>
+      )}
+      {graph && !answer && !loading && (
+        <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-600">
+          Also grounded in the company graph below (subsidiaries, gov contracts, related companies).
+        </p>
       )}
     </div>
   );

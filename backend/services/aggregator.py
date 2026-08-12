@@ -62,7 +62,7 @@ async def _get_fundamentals(symbol: str) -> dict:
 
     upsert_fundamentals_cache(symbol, pe_ratio, market_cap, eps, week_52_high, week_52_low)
     if overview.get("Name"):
-        upsert_ticker(symbol, overview.get("Name", ""), overview.get("Sector", ""))
+        upsert_ticker(symbol, overview.get("Name", ""), overview.get("Sector", ""), overview.get("Country", ""))
 
     return {
         "pe_ratio": pe_ratio,

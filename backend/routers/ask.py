@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api/v1")
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
+    graph: dict | None = None
 
 
 @router.post("/ask/{symbol}")
@@ -30,6 +31,7 @@ async def ask_about_ticker(symbol: str, body: AskRequest):
         context["news"],
         context["filings"],
         body.question,
+        body.graph,
     )
 
     return {"symbol": context["symbol"], "question": body.question, "answer": answer}

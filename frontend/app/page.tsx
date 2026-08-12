@@ -15,7 +15,16 @@ import MarketStatus from "@/components/MarketStatus";
 import ThemeToggle from "@/components/ThemeToggle";
 import Logo from "@/components/Logo";
 import Hero from "@/components/Hero";
-import { addToWatchlist, fetchBrief, fetchTicker, TickerContext } from "@/lib/api";
+import GraphView from "@/components/GraphView";
+import {
+  addToWatchlist,
+  fetchBrief,
+  fetchGraph,
+  fetchGraphInsights,
+  fetchTicker,
+  CompanyGraph,
+  TickerContext,
+} from "@/lib/api";
 
 export default function Home() {
   const [data, setData] = useState<TickerContext | null>(null);
@@ -26,6 +35,13 @@ export default function Home() {
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
+
+  const [graph, setGraph] = useState<CompanyGraph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
+
+  const [graphInsights, setGraphInsights] = useState<string | null>(null);
+  const [graphInsightsLoading, setGraphInsightsLoading] = useState(false);
 
   const [watchlistRefresh, setWatchlistRefresh] = useState(0);
   const [addingToWatchlist, setAddingToWatchlist] = useState(false);
@@ -50,6 +66,34 @@ export default function Home() {
     }
   }
 
+  async function loadGraph(symbol: string) {
+    setGraphLoading(true);
+    setGraphError(null);
+    setGraph(null);
+    setGraphInsights(null);
+    try {
+      const result = await fetchGraph(symbol);
+      setGraph(result);
+      if (result.nodes.length > 1) loadGraphInsights(symbol, result);
+    } catch (err) {
+      setGraphError(err instanceof Error ? err.message : "Failed to load company graph");
+    } finally {
+      setGraphLoading(false);
+    }
+  }
+
+  async function loadGraphInsights(symbol: string, companyGraph: CompanyGraph) {
+    setGraphInsightsLoading(true);
+    try {
+      const result = await fetchGraphInsights(symbol, companyGraph);
+      setGraphInsights(result);
+    } catch {
+      // non-critical; the graph visualization still stands on its own
+    } finally {
+      setGraphInsightsLoading(false);
+    }
+  }
+
   async function handleSearch(symbol: string, isRefresh = false) {
     if (isRefresh) {
       setRefreshing(true);
@@ -64,6 +108,7 @@ export default function Home() {
       const context = await fetchTicker(symbol);
       setData(context);
       loadBrief(context);
+      if (!isRefresh) loadGraph(context.symbol);
     } catch (err) {
       if (!isRefresh) setData(null);
       setError(err instanceof Error ? err.message : "Something went wrong. Check that the backend is running.");
@@ -147,9 +192,35 @@ export default function Home() {
 
               <div className="flex flex-col gap-6 lg:col-span-2">
                 <AIBrief brief={brief} loading={briefLoading} error={briefError} />
-                <AskBox symbol={data.symbol} />
+                <AskBox symbol={data.symbol} graph={graph} />
               </div>
               <Filings filings={data.filings} />
+
+              <div className="lg:col-span-3">
+                {graphLoading && (
+                  <div className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-500" />
+                      Building company graph (subsidiaries, gov contracts, related companies)… this can take
+                      up to ~20s the first time, then it&apos;s cached for a week.
+                    </span>
+                  </div>
+                )}
+                {!graphLoading && graphError && (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400">
+                    {graphError}
+                  </div>
+                )}
+                {!graphLoading && !graphError && graph && (
+                  <GraphView
+                    graph={graph}
+                    centerSymbol={data.symbol}
+                    onSelect={handleSearch}
+                    insights={graphInsights}
+                    insightsLoading={graphInsightsLoading}
+                  />
+                )}
+              </div>
 
               <div className="lg:col-span-3">
                 <NewsFeed news={data.news} />

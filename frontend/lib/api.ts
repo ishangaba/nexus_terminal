@@ -53,6 +53,27 @@ export interface WatchlistQuote {
   change_pct: number | null;
 }
 
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: "Company" | "GovEntity" | string;
+  symbol: string | null;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: "SUBSIDIARY_OF" | "HAS_CONTRACT" | "SUPPLIES_TO" | "COMPETES_WITH" | "PARTNERS_WITH" | string;
+  amount?: number | null;
+  date?: string | null;
+  evidence?: string | null;
+}
+
+export interface CompanyGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -92,11 +113,26 @@ export async function removeFromWatchlist(symbol: string): Promise<void> {
   await handleResponse(res);
 }
 
-export async function askAboutTicker(symbol: string, question: string): Promise<string> {
+export async function fetchGraph(symbol: string): Promise<CompanyGraph> {
+  const res = await fetch(`${API_BASE}/api/v1/graph/${encodeURIComponent(symbol)}`);
+  return handleResponse<CompanyGraph>(res);
+}
+
+export async function fetchGraphInsights(symbol: string, graph: CompanyGraph): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/v1/graph/${encodeURIComponent(symbol)}/insights`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(graph),
+  });
+  const data = await handleResponse<{ insights: string }>(res);
+  return data.insights;
+}
+
+export async function askAboutTicker(symbol: string, question: string, graph?: CompanyGraph | null): Promise<string> {
   const res = await fetch(`${API_BASE}/api/v1/ask/${encodeURIComponent(symbol)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, graph: graph ?? null }),
   });
   const data = await handleResponse<{ answer: string }>(res);
   return data.answer;

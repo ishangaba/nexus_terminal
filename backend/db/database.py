@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS ticker (
     symbol TEXT PRIMARY KEY,
     name TEXT,
     sector TEXT,
+    country TEXT,
     added_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -57,6 +58,11 @@ CREATE TABLE IF NOT EXISTS filings_cache (
     filings_json TEXT,
     fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS graph_build_cache (
+    symbol TEXT PRIMARY KEY,
+    built_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -66,10 +72,18 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Lightweight additive migrations for columns added after tables already existed."""
+    existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ticker)")}
+    if "country" not in existing_columns:
+        conn.execute("ALTER TABLE ticker ADD COLUMN country TEXT")
+
+
 def init_db() -> None:
     conn = get_connection()
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()
