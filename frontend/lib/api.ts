@@ -44,6 +44,7 @@ export interface TickerContext {
   chart_data: ChartPoint[];
   news: NewsItem[];
   filings: Filing[];
+  errors?: Record<string, string>;
 }
 
 export interface WatchlistQuote {
@@ -136,4 +137,33 @@ export async function askAboutTicker(symbol: string, question: string, graph?: C
   });
   const data = await handleResponse<{ answer: string }>(res);
   return data.answer;
+}
+
+export type SettingsKey = "alpha_vantage_api_key" | "finnhub_api_key" | "anthropic_api_key" | "marketaux_api_key";
+
+export interface SettingStatus {
+  label: string;
+  configured: boolean;
+  masked: string | null;
+}
+
+export type SettingsStatus = Record<SettingsKey, SettingStatus>;
+
+export async function fetchSettings(): Promise<SettingsStatus> {
+  const res = await fetch(`${API_BASE}/api/v1/settings`);
+  return handleResponse<SettingsStatus>(res);
+}
+
+export async function saveSettings(updates: Partial<Record<SettingsKey, string>>): Promise<SettingsStatus> {
+  const res = await fetch(`${API_BASE}/api/v1/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  return handleResponse<SettingsStatus>(res);
+}
+
+export async function clearSetting(key: SettingsKey): Promise<SettingsStatus> {
+  const res = await fetch(`${API_BASE}/api/v1/settings/${key}`, { method: "DELETE" });
+  return handleResponse<SettingsStatus>(res);
 }

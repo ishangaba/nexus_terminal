@@ -63,6 +63,18 @@ CREATE TABLE IF NOT EXISTS graph_build_cache (
     symbol TEXT PRIMARY KEY,
     built_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS news_cache (
+    symbol TEXT PRIMARY KEY,
+    news_json TEXT,
+    fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 

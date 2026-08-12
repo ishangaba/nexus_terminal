@@ -19,8 +19,13 @@ async def _build_subsidiaries(symbol: str) -> None:
     if not exhibit_text:
         return
 
-    subsidiaries = await asyncio.to_thread(claude_analyst.extract_subsidiaries, exhibit_text)
-    for name in subsidiaries[:MAX_SUBSIDIARIES]:
+    try:
+        subsidiaries = await asyncio.to_thread(claude_analyst.extract_subsidiaries, exhibit_text, MAX_SUBSIDIARIES)
+    except Exception:
+        logger.exception("Failed to extract subsidiaries for %s", symbol)
+        return
+
+    for name in subsidiaries:
         await graph.link_subsidiary(symbol, name)
 
 

@@ -11,10 +11,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import ErrorNotice from "@/components/ErrorNotice";
 import { ChartPoint } from "@/lib/api";
 
 interface PriceChartProps {
   chartData: ChartPoint[];
+  error?: string;
 }
 
 function fmt(value: number | null | undefined): string {
@@ -42,11 +44,12 @@ function ChartTooltip({ active, payload, label }: TooltipProps<number, string>) 
   );
 }
 
-export default function PriceChart({ chartData }: PriceChartProps) {
+export default function PriceChart({ chartData, error }: PriceChartProps) {
   if (!chartData || chartData.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
         No chart data available.
+        {error && <ErrorNotice message={error} />}
       </div>
     );
   }

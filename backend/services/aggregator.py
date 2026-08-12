@@ -5,14 +5,18 @@ from db.models import (
     get_cached_chart,
     get_cached_filings,
     get_cached_fundamentals,
+    get_cached_news,
     upsert_chart_cache,
     upsert_filings_cache,
     upsert_fundamentals_cache,
+    upsert_news_cache,
     upsert_ticker,
 )
-from services import alpha_vantage, claude_analyst, finnhub, sec_edgar
+from services import alpha_vantage, claude_analyst, finnhub, marketaux, sec_edgar
+from services.errors import ProviderError
 
 MAX_NEWS_ITEMS = 8
+FINNHUB_NEWS_CANDIDATES = 6
 CHART_DAYS = 30
 
 
@@ -35,7 +39,7 @@ def _check_alpha_vantage_error(response: dict) -> None:
             raise AlphaVantageRateLimitError(response[key])
 
 
-async def _get_fundamentals(symbol: str) -> dict:
+async def _get_fundamentals(symbol: str) -> tuple[dict, str | None]:
     cached = get_cached_fundamentals(symbol)
     if cached is not None:
         return {
@@ -44,15 +48,17 @@ async def _get_fundamentals(symbol: str) -> dict:
             "eps": cached["eps"],
             "52_week_high": cached["week_52_high"],
             "52_week_low": cached["week_52_low"],
-        }
+        }, None
 
     empty = {"pe_ratio": None, "market_cap": None, "eps": None, "52_week_high": None, "52_week_low": None}
 
     try:
         overview = await alpha_vantage.get_overview(symbol)
         _check_alpha_vantage_error(overview)
-    except AlphaVantageRateLimitError:
-        return empty
+    except AlphaVantageRateLimitError as exc:
+        return empty, f"Alpha Vantage: {exc}"
+    except ProviderError as exc:
+        return empty, exc.message
 
     pe_ratio = _safe_float(overview.get("PERatio"))
     market_cap = _safe_float(overview.get("MarketCapitalization"))
@@ -70,19 +76,21 @@ async def _get_fundamentals(symbol: str) -> dict:
         "eps": eps,
         "52_week_high": week_52_high,
         "52_week_low": week_52_low,
-    }
+    }, None
 
 
-async def _get_chart_data(symbol: str) -> list[dict]:
+async def _get_chart_data(symbol: str) -> tuple[list[dict], str | None]:
     cached = get_cached_chart(symbol)
     if cached is not None:
-        return cached
+        return cached, None
 
     try:
         series = await alpha_vantage.get_daily_series(symbol)
         _check_alpha_vantage_error(series)
-    except AlphaVantageRateLimitError:
-        return []
+    except AlphaVantageRateLimitError as exc:
+        return [], f"Alpha Vantage: {exc}"
+    except ProviderError as exc:
+        return [], exc.message
 
     daily = series.get("Time Series (Daily)", {})
     chart_data = [
@@ -98,18 +106,31 @@ async def _get_chart_data(symbol: str) -> list[dict]:
 
     if chart_data:
         upsert_chart_cache(symbol, chart_data)
-    return chart_data
+    return chart_data, None
 
 
-async def _get_news(symbol: str) -> list[dict]:
+def _parse_iso(value: str | None) -> datetime:
+    if not value:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+async def _fetch_finnhub_news(symbol: str) -> tuple[list[dict], str | None]:
     today = datetime.now(timezone.utc).date()
     week_ago = today - timedelta(days=7)
 
-    raw_news = await finnhub.get_company_news(symbol, week_ago.isoformat(), today.isoformat())
+    try:
+        raw_news = await finnhub.get_company_news(symbol, week_ago.isoformat(), today.isoformat())
+    except ProviderError as exc:
+        return [], exc.message
+
     raw_news = sorted(raw_news, key=lambda item: item.get("datetime", 0), reverse=True)
 
     news = []
-    for item in raw_news[:MAX_NEWS_ITEMS]:
+    for item in raw_news[:FINNHUB_NEWS_CANDIDATES]:
         published_at = (
             datetime.fromtimestamp(item["datetime"], tz=timezone.utc).isoformat()
             if item.get("datetime")
@@ -124,29 +145,89 @@ async def _get_news(symbol: str) -> list[dict]:
                 "url": item.get("url"),
             }
         )
+    return news, None
 
-    scores = await asyncio.gather(
-        *(asyncio.to_thread(claude_analyst.score_sentiment, item["headline"]) for item in news)
+
+async def _fetch_marketaux_news(symbol: str) -> tuple[list[dict], str | None]:
+    try:
+        raw_news = await marketaux.get_company_news(symbol)
+    except ProviderError as exc:
+        return [], exc.message
+    except Exception:
+        return [], None
+
+    return [
+        {
+            "headline": item.get("title"),
+            "source": item.get("source"),
+            "published_at": item.get("published_at"),
+            "sentiment_score": None,
+            "url": item.get("url"),
+        }
+        for item in raw_news
+    ], None
+
+
+async def _get_news(symbol: str) -> tuple[list[dict], str | None]:
+    cached = get_cached_news(symbol)
+    if cached is not None:
+        return cached, None
+
+    (finnhub_news, finnhub_err), (marketaux_news, marketaux_err) = await asyncio.gather(
+        _fetch_finnhub_news(symbol), _fetch_marketaux_news(symbol)
     )
-    for item, score in zip(news, scores):
-        item["sentiment_score"] = score
 
-    return news
+    seen_headlines = set()
+    merged = []
+    for item in finnhub_news + marketaux_news:
+        if not item.get("headline"):
+            continue
+        key = item["headline"].strip().lower()
+        if key in seen_headlines:
+            continue
+        seen_headlines.add(key)
+        merged.append(item)
+
+    merged.sort(key=lambda item: _parse_iso(item.get("published_at")), reverse=True)
+    news = merged[:MAX_NEWS_ITEMS]
+
+    sentiment_err = None
+    try:
+        scores = await asyncio.gather(
+            *(asyncio.to_thread(claude_analyst.score_sentiment, item["headline"]) for item in news)
+        )
+        for item, score in zip(news, scores):
+            item["sentiment_score"] = score
+    except ProviderError as exc:
+        sentiment_err = f"AI sentiment scoring unavailable ({exc.message})"
+        for item in news:
+            item["sentiment_score"] = None
+
+    errors = [e for e in (finnhub_err, marketaux_err, sentiment_err) if e]
+    error_message = "; ".join(errors) if errors else None
+
+    # Only cache clean fetches — caching a partial/failed result would hide the error
+    # (and the empty/degraded data) behind the TTL for anyone searching this symbol next.
+    if error_message is None:
+        upsert_news_cache(symbol, news)
+    return news, error_message
 
 
-async def _get_filings(symbol: str) -> list[dict]:
+async def _get_filings(symbol: str) -> tuple[list[dict], str | None]:
     cached = get_cached_filings(symbol)
     if cached is not None:
-        return cached
+        return cached, None
 
     try:
         filings = await sec_edgar.get_recent_filings(symbol)
-    except Exception:
-        return []
+    except ProviderError as exc:
+        return [], exc.message
+    except Exception as exc:
+        return [], f"SEC EDGAR: unexpected error ({exc})."
 
     if filings:
         upsert_filings_cache(symbol, filings)
-    return filings
+    return filings, None
 
 
 async def gather_context(symbol: str) -> dict:
@@ -157,10 +238,10 @@ async def gather_context(symbol: str) -> dict:
     if not quote or quote.get("c") in (None, 0):
         raise ValueError(f"No price data found for symbol '{symbol}'")
 
-    fundamentals = await _get_fundamentals(symbol)
-    chart_data = await _get_chart_data(symbol)
-    news = await _get_news(symbol)
-    filings = await _get_filings(symbol)
+    fundamentals, fundamentals_err = await _get_fundamentals(symbol)
+    chart_data, chart_err = await _get_chart_data(symbol)
+    news, news_err = await _get_news(symbol)
+    filings, filings_err = await _get_filings(symbol)
 
     price = {
         "last": quote.get("c"),
@@ -171,6 +252,17 @@ async def gather_context(symbol: str) -> dict:
         else datetime.now(timezone.utc).isoformat(),
     }
 
+    errors = {
+        key: message
+        for key, message in {
+            "fundamentals": fundamentals_err,
+            "chart_data": chart_err,
+            "news": news_err,
+            "filings": filings_err,
+        }.items()
+        if message
+    }
+
     return {
         "symbol": symbol,
         "price": price,
@@ -178,4 +270,5 @@ async def gather_context(symbol: str) -> dict:
         "chart_data": chart_data,
         "news": news,
         "filings": filings,
+        "errors": errors,
     }

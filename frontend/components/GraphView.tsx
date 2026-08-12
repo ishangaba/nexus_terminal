@@ -110,7 +110,8 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
     nodeGroup.each(function (d) {
       const g = d3.select(this);
       const isCenter = d.id === centerSymbol;
-      const color = d.type === "GovEntity" ? "#d97706" : isCenter ? "#0891b2" : "#38bdf8";
+      const isClickable = Boolean(d.symbol) && !isCenter;
+      const color = d.type === "GovEntity" ? "#d97706" : isCenter ? "#0891b2" : isClickable ? "#38bdf8" : "#a1a1aa";
       const radius = isCenter ? 15 : 9;
 
       if (d.type === "GovEntity") {
@@ -165,7 +166,8 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
 
   const usedEdgeTypes = Array.from(new Set(graph.edges.map((e) => e.type)));
   const hasGovEntity = graph.nodes.some((n) => n.type === "GovEntity");
-  const hasOtherCompany = graph.nodes.some((n) => n.type === "Company" && n.id !== centerSymbol);
+  const hasClickableCompany = graph.nodes.some((n) => n.type === "Company" && n.id !== centerSymbol && n.symbol);
+  const hasNonClickableCompany = graph.nodes.some((n) => n.type === "Company" && n.id !== centerSymbol && !n.symbol);
 
   if (graph.nodes.length <= 1) {
     return (
@@ -209,10 +211,16 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
             <span className="inline-block h-3 w-3 rounded-full border border-white" style={{ backgroundColor: "#0891b2" }} />
             {centerSymbol} (this company)
           </span>
-          {hasOtherCompany && (
+          {hasClickableCompany && (
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <span className="inline-block h-2.5 w-2.5 rounded-full border border-white" style={{ backgroundColor: "#38bdf8" }} />
-              Related company
+              Related company (click to explore)
+            </span>
+          )}
+          {hasNonClickableCompany && (
+            <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+              <span className="inline-block h-2.5 w-2.5 rounded-full border border-white" style={{ backgroundColor: "#a1a1aa" }} />
+              Subsidiary (no public ticker)
             </span>
           )}
           {hasGovEntity && (
@@ -246,7 +254,7 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
         <svg ref={svgRef} className="w-full" style={{ height: 420 }} />
       </div>
       <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-600">
-        Drag nodes to rearrange · click a company to explore it · hover any node or line for detail
+        Drag nodes to rearrange · click a blue node to explore that company · hover any node or line for detail
       </p>
     </div>
   );

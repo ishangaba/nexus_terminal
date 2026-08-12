@@ -1,9 +1,11 @@
+import ErrorNotice from "@/components/ErrorNotice";
 import { TickerFundamentals, TickerPrice } from "@/lib/api";
 
 interface PriceCardProps {
   symbol: string;
   price: TickerPrice;
   fundamentals: TickerFundamentals;
+  fundamentalsError?: string;
 }
 
 function formatNumber(n: number | null, digits = 2): string {
@@ -18,7 +20,7 @@ function formatMarketCap(n: number | null): string {
   return `$${n}`;
 }
 
-export default function PriceCard({ symbol, price, fundamentals }: PriceCardProps) {
+export default function PriceCard({ symbol, price, fundamentals, fundamentalsError }: PriceCardProps) {
   const isUp = price.change >= 0;
 
   return (
@@ -57,6 +59,7 @@ export default function PriceCard({ symbol, price, fundamentals }: PriceCardProp
           </div>
         </div>
       </div>
+      {fundamentalsError && <ErrorNotice message={fundamentalsError} />}
     </div>
   );
 }

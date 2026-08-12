@@ -1,7 +1,9 @@
+import ErrorNotice from "@/components/ErrorNotice";
 import { Filing } from "@/lib/api";
 
 interface FilingsProps {
   filings: Filing[];
+  error?: string;
 }
 
 const FORM_LABELS: Record<string, string> = {
@@ -11,11 +13,12 @@ const FORM_LABELS: Record<string, string> = {
   "4": "Insider transaction",
 };
 
-export default function Filings({ filings }: FilingsProps) {
+export default function Filings({ filings, error }: FilingsProps) {
   if (!filings || filings.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
         No recent SEC filings found.
+        {error && <ErrorNotice message={error} />}
       </div>
     );
   }

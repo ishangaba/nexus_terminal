@@ -1,8 +1,10 @@
+import ErrorNotice from "@/components/ErrorNotice";
 import { NewsItem } from "@/lib/api";
 import { decodeHtmlEntities } from "@/lib/text";
 
 interface NewsFeedProps {
   news: NewsItem[];
+  error?: string;
 }
 
 function sentimentBadge(score: number | null) {
@@ -12,11 +14,12 @@ function sentimentBadge(score: number | null) {
   return { label: score.toFixed(2), className: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" };
 }
 
-export default function NewsFeed({ news }: NewsFeedProps) {
+export default function NewsFeed({ news, error }: NewsFeedProps) {
   if (!news || news.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
         No recent news.
+        {error && <ErrorNotice message={error} />}
       </div>
     );
   }
@@ -24,7 +27,8 @@ export default function NewsFeed({ news }: NewsFeedProps) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/60 dark:backdrop-blur">
       <h3 className="mb-4 text-sm font-medium text-zinc-500 dark:text-zinc-400">Recent News</h3>
-      <ul className="space-y-3">
+      {error && <ErrorNotice message={error} />}
+      <ul className={`space-y-3 ${error ? "mt-3" : ""}`}>
         {news.map((item, i) => {
           const badge = sentimentBadge(item.sentiment_score);
           return (

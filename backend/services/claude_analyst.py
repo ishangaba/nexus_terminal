@@ -5,8 +5,29 @@ import anthropic
 from pydantic import BaseModel
 
 from config import settings
+from services.errors import ProviderError
+
+PROVIDER = "Anthropic"
 
 _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+
+def reload_client() -> None:
+    """Recreate the Anthropic client after the API key changes at runtime (e.g. via Settings)."""
+    global _client
+    _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+
+def _wrap_anthropic_error(exc: Exception) -> ProviderError:
+    if isinstance(exc, anthropic.AuthenticationError):
+        return ProviderError(PROVIDER, f"{PROVIDER}: invalid or missing API key — check Settings.")
+    if isinstance(exc, anthropic.RateLimitError):
+        return ProviderError(PROVIDER, f"{PROVIDER}: rate limit reached — try again shortly.")
+    if isinstance(exc, anthropic.APIConnectionError):
+        return ProviderError(PROVIDER, f"{PROVIDER} is unreachable right now.")
+    if isinstance(exc, anthropic.APIStatusError):
+        return ProviderError(PROVIDER, f"{PROVIDER}: request failed (HTTP {exc.status_code}).")
+    return ProviderError(PROVIDER, f"{PROVIDER}: unexpected error.")
 
 BRIEF_MODEL = "claude-sonnet-5"
 ASK_MODEL = "claude-sonnet-5"
@@ -100,14 +121,17 @@ def _build_context_payload(
 
 def generate_brief(symbol: str, price: dict, fundamentals: dict, news: list[dict], filings: list[dict] | None = None) -> str:
     payload = _build_context_payload(symbol, price, fundamentals, news, filings or [])
-    response = _client.messages.create(
-        model=BRIEF_MODEL,
-        max_tokens=400,
-        thinking={"type": "disabled"},
-        output_config={"effort": "low"},
-        system=BRIEF_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": json.dumps(payload)}],
-    )
+    try:
+        response = _client.messages.create(
+            model=BRIEF_MODEL,
+            max_tokens=400,
+            thinking={"type": "disabled"},
+            output_config={"effort": "low"},
+            system=BRIEF_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
     return next((b.text for b in response.content if b.type == "text"), "")
 
 
@@ -121,14 +145,17 @@ def answer_question(
     graph: dict | None = None,
 ) -> str:
     payload = _build_context_payload(symbol, price, fundamentals, news, filings, graph)
-    response = _client.messages.create(
-        model=ASK_MODEL,
-        max_tokens=350,
-        thinking={"type": "disabled"},
-        output_config={"effort": "low"},
-        system=ASK_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": f"Data: {json.dumps(payload)}\n\nQuestion: {question}"}],
-    )
+    try:
+        response = _client.messages.create(
+            model=ASK_MODEL,
+            max_tokens=350,
+            thinking={"type": "disabled"},
+            output_config={"effort": "low"},
+            system=ASK_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"Data: {json.dumps(payload)}\n\nQuestion: {question}"}],
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
     return next((b.text for b in response.content if b.type == "text"), "")
 
 
@@ -137,12 +164,15 @@ def generate_graph_insights(symbol: str, graph: dict) -> str:
     if not any(summary.values()):
         return "No notable subsidiary, government contract, or related-company signal found for this ticker yet."
 
-    response = _client.messages.create(
-        model=SENTIMENT_MODEL,
-        max_tokens=250,
-        system=GRAPH_INSIGHTS_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": json.dumps({"symbol": symbol, "graph_summary": summary})}],
-    )
+    try:
+        response = _client.messages.create(
+            model=SENTIMENT_MODEL,
+            max_tokens=250,
+            system=GRAPH_INSIGHTS_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": json.dumps({"symbol": symbol, "graph_summary": summary})}],
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
     return next((b.text for b in response.content if b.type == "text"), "")
 
 
@@ -150,25 +180,30 @@ class SubsidiaryExtraction(BaseModel):
     subsidiaries: list[str]
 
 
-SUBSIDIARY_EXTRACTION_PROMPT = (
-    "You will be given the text of an SEC Exhibit 21 filing, which lists a company's "
-    "subsidiaries. Extract just the subsidiary company names, exactly as written — no "
-    "jurisdictions, no explanatory text. If the text contains no subsidiary list, return "
-    "an empty array."
-)
-
-
-def extract_subsidiaries(exhibit_text: str) -> list[str]:
-    response = _client.messages.parse(
-        model=EXTRACTION_MODEL,
-        max_tokens=2000,
-        system=SUBSIDIARY_EXTRACTION_PROMPT,
-        messages=[{"role": "user", "content": exhibit_text}],
-        output_format=SubsidiaryExtraction,
+def _subsidiary_extraction_prompt(limit: int) -> str:
+    return (
+        "You will be given the text of an SEC Exhibit 21 filing, which lists a company's "
+        "subsidiaries. Extract just the subsidiary company names, exactly as written — no "
+        "jurisdictions, no explanatory text. If the text contains no subsidiary list, return "
+        f"an empty array. The filing may list far more than needed — return at most {limit}, "
+        "prioritizing the ones listed first (typically the most significant)."
     )
+
+
+def extract_subsidiaries(exhibit_text: str, limit: int = 15) -> list[str]:
+    try:
+        response = _client.messages.parse(
+            model=EXTRACTION_MODEL,
+            max_tokens=3000,
+            system=_subsidiary_extraction_prompt(limit),
+            messages=[{"role": "user", "content": exhibit_text}],
+            output_format=SubsidiaryExtraction,
+        )
+    except Exception:
+        return []
     if response.parsed_output is None:
         return []
-    return response.parsed_output.subsidiaries
+    return response.parsed_output.subsidiaries[:limit]
 
 
 class NewsRelationship(BaseModel):
@@ -197,25 +232,31 @@ def extract_relationships(symbol: str, headlines: list[str]) -> list[NewsRelatio
     if not headlines:
         return []
     payload = {"symbol": symbol, "headlines": headlines}
-    response = _client.messages.parse(
-        model=EXTRACTION_MODEL,
-        max_tokens=1000,
-        system=RELATIONSHIP_EXTRACTION_PROMPT,
-        messages=[{"role": "user", "content": json.dumps(payload)}],
-        output_format=RelationshipExtraction,
-    )
+    try:
+        response = _client.messages.parse(
+            model=EXTRACTION_MODEL,
+            max_tokens=1000,
+            system=RELATIONSHIP_EXTRACTION_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+            output_format=RelationshipExtraction,
+        )
+    except Exception:
+        return []
     if response.parsed_output is None:
         return []
     return [r for r in response.parsed_output.relationships if r.other_ticker]
 
 
-def score_sentiment(headline: str) -> float:
-    response = _client.messages.create(
-        model=SENTIMENT_MODEL,
-        max_tokens=10,
-        system=SENTIMENT_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": headline}],
-    )
+def score_sentiment(headline: str) -> float | None:
+    try:
+        response = _client.messages.create(
+            model=SENTIMENT_MODEL,
+            max_tokens=10,
+            system=SENTIMENT_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": headline}],
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
     text = next((b.text for b in response.content if b.type == "text"), "0")
     try:
         return max(-1.0, min(1.0, float(text.strip())))

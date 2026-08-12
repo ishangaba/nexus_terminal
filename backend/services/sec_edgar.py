@@ -2,9 +2,12 @@ import re
 
 import httpx
 
+from services.errors import wrap_httpx_error
+
 HEADERS = {"User-Agent": "Nexus Terminal (personal project) contact:thegoodstuff4804@gmail.com"}
 TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+PROVIDER = "SEC EDGAR"
 
 INTERESTING_FORMS = {"10-K", "10-Q", "8-K", "4"}
 EXHIBIT_21_PATTERN = re.compile(r"ex.*21", re.IGNORECASE)
@@ -18,10 +21,13 @@ async def _load_ticker_map() -> dict[str, str]:
     if _ticker_cik_cache is not None:
         return _ticker_cik_cache
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(TICKER_MAP_URL, headers=HEADERS)
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(TICKER_MAP_URL, headers=HEADERS)
+            resp.raise_for_status()
+            data = resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise wrap_httpx_error(PROVIDER, exc) from exc
 
     _ticker_cik_cache = {entry["ticker"].upper(): str(entry["cik_str"]).zfill(10) for entry in data.values()}
     return _ticker_cik_cache
@@ -33,10 +39,13 @@ async def _get_cik(symbol: str) -> str | None:
 
 
 async def _get_submissions(cik: str) -> dict:
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(SUBMISSIONS_URL.format(cik=cik), headers=HEADERS)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(SUBMISSIONS_URL.format(cik=cik), headers=HEADERS)
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise wrap_httpx_error(PROVIDER, exc) from exc
 
 
 async def get_recent_filings(symbol: str, limit: int = 5) -> list[dict]:

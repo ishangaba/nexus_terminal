@@ -2,7 +2,10 @@ from datetime import date, timedelta
 
 import httpx
 
+from services.errors import wrap_httpx_error
+
 SEARCH_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
+PROVIDER = "USASpending.gov"
 AWARD_TYPE_CODES = ["A", "B", "C", "D"]  # contracts (definitive, BPA call, delivery order, IDV)
 LOOKBACK_YEARS = 3
 
@@ -27,11 +30,14 @@ async def get_federal_contracts(company_name: str, limit: int = 5) -> list[dict]
         "order": "desc",
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(SEARCH_URL, json=payload)
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(SEARCH_URL, json=payload)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        raise wrap_httpx_error(PROVIDER, exc) from exc
 
     contracts = []
     for award in data.get("results", []):

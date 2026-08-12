@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from db.models import get_ticker
 from services import claude_analyst, finnhub
+from services.errors import ProviderError
 from services.graph import GraphUnavailableError
 from services.graph_builder import get_or_build_graph
 
@@ -52,7 +53,10 @@ async def read_company_graph(symbol: str):
 
 @router.post("/graph/{symbol}/insights")
 async def read_graph_insights(symbol: str, body: GraphInsightsRequest):
-    insights = await asyncio.to_thread(
-        claude_analyst.generate_graph_insights, symbol.upper(), {"nodes": body.nodes, "edges": body.edges}
-    )
+    try:
+        insights = await asyncio.to_thread(
+            claude_analyst.generate_graph_insights, symbol.upper(), {"nodes": body.nodes, "edges": body.edges}
+        )
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.message) from exc
     return {"symbol": symbol.upper(), "insights": insights}

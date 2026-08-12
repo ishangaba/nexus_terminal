@@ -5,6 +5,7 @@ from db.database import get_connection
 
 FUNDAMENTALS_TTL_HOURS = 20
 FILINGS_TTL_HOURS = 12
+NEWS_TTL_HOURS = 2
 GRAPH_BUILD_TTL_HOURS = 24 * 7  # subsidiary/contract data barely changes; rebuild weekly
 
 
@@ -144,6 +145,35 @@ def upsert_filings_cache(symbol: str, filings: list) -> None:
         conn.close()
 
 
+def get_cached_news(symbol: str) -> list | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM news_cache WHERE symbol = ?", (symbol,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    fetched_at = datetime.fromisoformat(row["fetched_at"]).replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - fetched_at > timedelta(hours=NEWS_TTL_HOURS):
+        return None
+    return json.loads(row["news_json"])
+
+
+def upsert_news_cache(symbol: str, news: list) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO news_cache (symbol, news_json, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(symbol) DO UPDATE SET news_json=excluded.news_json, fetched_at=CURRENT_TIMESTAMP
+            """,
+            (symbol, json.dumps(news)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def is_graph_stale(symbol: str) -> bool:
     conn = get_connection()
     try:
@@ -208,6 +238,39 @@ def get_latest_price_snapshot(symbol: str) -> dict | None:
     finally:
         conn.close()
     return dict(row) if row else None
+
+
+def set_setting(key: str, value: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+            """,
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_setting(key: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_settings() -> dict[str, str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+    finally:
+        conn.close()
+    return {row["key"]: row["value"] for row in rows}
 
 
 def insert_news_item(
