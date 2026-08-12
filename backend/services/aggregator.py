@@ -86,7 +86,13 @@ async def _get_chart_data(symbol: str) -> list[dict]:
 
     daily = series.get("Time Series (Daily)", {})
     chart_data = [
-        {"date": date, "close": _safe_float(values.get("4. close"))}
+        {
+            "date": date,
+            "open": _safe_float(values.get("1. open")),
+            "high": _safe_float(values.get("2. high")),
+            "low": _safe_float(values.get("3. low")),
+            "close": _safe_float(values.get("4. close")),
+        }
         for date, values in sorted(daily.items())[-CHART_DAYS:]
     ]
 
@@ -173,18 +179,3 @@ async def gather_context(symbol: str) -> dict:
         "news": news,
         "filings": filings,
     }
-
-
-async def get_ticker_snapshot(symbol: str) -> dict:
-    context = await gather_context(symbol)
-
-    ai_brief = await asyncio.to_thread(
-        claude_analyst.generate_brief,
-        context["symbol"],
-        context["price"],
-        context["fundamentals"],
-        context["news"],
-        context["filings"],
-    )
-
-    return {**context, "ai_brief": ai_brief}

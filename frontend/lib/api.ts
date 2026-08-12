@@ -17,6 +17,9 @@ export interface TickerFundamentals {
 
 export interface ChartPoint {
   date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
   close: number | null;
 }
 
@@ -34,14 +37,13 @@ export interface Filing {
   url: string;
 }
 
-export interface TickerSnapshot {
+export interface TickerContext {
   symbol: string;
   price: TickerPrice;
   fundamentals: TickerFundamentals;
   chart_data: ChartPoint[];
   news: NewsItem[];
   filings: Filing[];
-  ai_brief: string;
 }
 
 export interface WatchlistQuote {
@@ -59,9 +61,19 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-export async function fetchTicker(symbol: string): Promise<TickerSnapshot> {
+export async function fetchTicker(symbol: string): Promise<TickerContext> {
   const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}`);
-  return handleResponse<TickerSnapshot>(res);
+  return handleResponse<TickerContext>(res);
+}
+
+export async function fetchBrief(symbol: string, context: Omit<TickerContext, "symbol" | "chart_data">): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/brief`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(context),
+  });
+  const data = await handleResponse<{ ai_brief: string }>(res);
+  return data.ai_brief;
 }
 
 export async function fetchWatchlist(): Promise<WatchlistQuote[]> {

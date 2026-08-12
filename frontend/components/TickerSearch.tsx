@@ -23,12 +23,12 @@ export default function TickerSearch({ onSearch, loading }: TickerSearchProps) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="Enter ticker (e.g. AAPL)"
-        className="flex-1 rounded-md border border-zinc-300 px-4 py-2 text-lg uppercase focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+        className="flex-1 rounded-md border border-zinc-300 bg-white px-4 py-2 text-lg uppercase text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
       />
       <button
         type="submit"
         disabled={loading}
-        className="rounded-md bg-blue-600 px-5 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded-md bg-gradient-to-r from-cyan-600 to-cyan-500 px-5 py-2 font-medium text-white shadow-sm hover:from-cyan-500 hover:to-cyan-400 disabled:opacity-50"
       >
         {loading ? "Loading…" : "Search"}
       </button>
