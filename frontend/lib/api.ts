@@ -167,3 +167,100 @@ export async function clearSetting(key: SettingsKey): Promise<SettingsStatus> {
   const res = await fetch(`${API_BASE}/api/v1/settings/${key}`, { method: "DELETE" });
   return handleResponse<SettingsStatus>(res);
 }
+
+export type PositionSide = "long";
+
+export interface OpenPosition {
+  id: number;
+  symbol: string;
+  side: PositionSide;
+  quantity: number;
+  entry_price: number;
+  entry_date: string;
+  notes: string | null;
+  sector: string;
+  last_price: number | null;
+  market_value: number | null;
+  cost_basis: number;
+  unrealized_pnl: number | null;
+  unrealized_pnl_pct: number | null;
+  quote_error: string | null;
+}
+
+export interface ClosedPosition {
+  id: number;
+  symbol: string;
+  side: PositionSide;
+  quantity: number;
+  entry_price: number;
+  entry_date: string;
+  exit_price: number;
+  exit_date: string;
+  notes: string | null;
+  realized_pnl: number;
+  realized_pnl_pct: number | null;
+}
+
+export interface PortfolioSummary {
+  total_market_value: number;
+  total_cost_basis: number;
+  total_unrealized_pnl: number;
+  total_unrealized_pnl_pct: number;
+  total_realized_pnl: number;
+  open_position_count: number;
+  closed_position_count: number;
+}
+
+export interface AllocationEntry {
+  name: string;
+  market_value: number;
+  pct_of_portfolio: number;
+}
+
+export interface PortfolioData {
+  summary: PortfolioSummary;
+  open_positions: OpenPosition[];
+  closed_positions: ClosedPosition[];
+  allocation: { by_symbol: AllocationEntry[]; by_sector: AllocationEntry[] };
+}
+
+export interface PositionCreateInput {
+  symbol: string;
+  quantity: number;
+  entry_price: number;
+  entry_date: string;
+  notes?: string;
+}
+
+export interface PositionCloseInput {
+  exit_price: number;
+  exit_date: string;
+}
+
+export async function fetchPortfolio(): Promise<PortfolioData> {
+  const res = await fetch(`${API_BASE}/api/v1/portfolio`);
+  return handleResponse<PortfolioData>(res);
+}
+
+export async function createPosition(input: PositionCreateInput): Promise<OpenPosition> {
+  const res = await fetch(`${API_BASE}/api/v1/portfolio/positions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return handleResponse<OpenPosition>(res);
+}
+
+export async function closePosition(id: number, input: PositionCloseInput): Promise<ClosedPosition> {
+  const res = await fetch(`${API_BASE}/api/v1/portfolio/positions/${id}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return handleResponse<ClosedPosition>(res);
+}
+
+export async function deletePosition(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/v1/portfolio/positions/${id}`, { method: "DELETE" });
+  await handleResponse(res);
+}

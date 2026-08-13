@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { fetchWatchlist, removeFromWatchlist, WatchlistQuote } from "@/lib/api";
+
+const AUTO_REFRESH_MS = 30_000;
 
 interface WatchlistProps {
   onSelect: (symbol: string) => void;
@@ -11,6 +14,7 @@ interface WatchlistProps {
 export default function Watchlist({ onSelect, refreshKey }: WatchlistProps) {
   const [items, setItems] = useState<WatchlistQuote[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
     try {
@@ -25,6 +29,14 @@ export default function Watchlist({ onSelect, refreshKey }: WatchlistProps) {
   useEffect(() => {
     load();
   }, [refreshKey]);
+
+  useAutoRefresh(load, AUTO_REFRESH_MS);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
 
   async function handleRemove(symbol: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -54,7 +66,16 @@ export default function Watchlist({ onSelect, refreshKey }: WatchlistProps) {
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/60 dark:backdrop-blur">
-      <h3 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">Watchlist</h3>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Watchlist</h3>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="text-xs text-zinc-400 hover:text-zinc-600 disabled:opacity-50 dark:text-zinc-600 dark:hover:text-zinc-300"
+        >
+          {refreshing ? "Refreshing…" : "↻ Refresh"}
+        </button>
+      </div>
       <ul className="flex flex-wrap gap-2">
         {items.map((item) => {
           const isUp = (item.change ?? 0) >= 0;

@@ -229,6 +229,78 @@ def get_watchlist() -> list[str]:
     return [row["symbol"] for row in rows]
 
 
+def create_position(
+    symbol: str, side: str, quantity: float, entry_price: float, entry_date: str, notes: str | None = None
+) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO position (symbol, side, quantity, entry_price, entry_date, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (symbol, side, quantity, entry_price, entry_date, notes),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_position(position_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM position WHERE id = ?", (position_id,)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def get_open_positions() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM position WHERE exit_price IS NULL ORDER BY entry_date"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_closed_positions() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM position WHERE exit_price IS NOT NULL ORDER BY exit_date DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def close_position(position_id: int, exit_price: float, exit_date: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE position SET exit_price = ?, exit_date = ? WHERE id = ? AND exit_price IS NULL",
+            (exit_price, exit_date, position_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_position(position_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM position WHERE id = ?", (position_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 def get_latest_price_snapshot(symbol: str) -> dict | None:
     conn = get_connection()
     try:

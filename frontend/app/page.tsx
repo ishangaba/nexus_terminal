@@ -7,6 +7,7 @@ import PriceChart from "@/components/PriceChart";
 import NewsFeed from "@/components/NewsFeed";
 import AIBrief from "@/components/AIBrief";
 import Watchlist from "@/components/Watchlist";
+import Portfolio from "@/components/Portfolio";
 import Skeleton from "@/components/Skeleton";
 import Filings from "@/components/Filings";
 import AskBox from "@/components/AskBox";
@@ -167,6 +168,8 @@ export default function Home() {
         <TickerSearch onSearch={handleSearch} loading={loading} />
 
         <Watchlist onSelect={handleSearch} refreshKey={watchlistRefresh} />
+
+        <Portfolio />
 
         {error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400">

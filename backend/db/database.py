@@ -70,6 +70,19 @@ CREATE TABLE IF NOT EXISTS news_cache (
     fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS position (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL DEFAULT 'long' CHECK (side IN ('long', 'short')),
+    quantity REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_date TEXT NOT NULL,
+    exit_price REAL,
+    exit_date TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
