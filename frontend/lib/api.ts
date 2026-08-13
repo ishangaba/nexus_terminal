@@ -94,6 +94,17 @@ export async function fetchTicker(symbol: string): Promise<TickerContext> {
   return handleResponse<TickerContext>(res);
 }
 
+export interface TickerSearchResult {
+  symbol: string;
+  description: string;
+}
+
+export async function searchTickers(query: string): Promise<TickerSearchResult[]> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/search?q=${encodeURIComponent(query)}`);
+  const data = await handleResponse<{ results: TickerSearchResult[] }>(res);
+  return data.results;
+}
+
 export async function fetchLivePrice(symbol: string): Promise<TickerPrice> {
   const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/price`);
   return handleResponse<TickerPrice>(res);

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import { fetchWatchlist, removeFromWatchlist, WatchlistQuote } from "@/lib/api";
 
-const AUTO_REFRESH_MS = 30_000;
+const AUTO_REFRESH_MS = 10_000;
 
 interface WatchlistProps {
   onSelect: (symbol: string) => void;

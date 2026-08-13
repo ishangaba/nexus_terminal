@@ -13,7 +13,7 @@ import {
   PortfolioData,
 } from "@/lib/api";
 
-const AUTO_REFRESH_MS = 30_000;
+const AUTO_REFRESH_MS = 10_000;
 
 function fmtMoney(n: number | null): string {
   if (n === null) return "—";

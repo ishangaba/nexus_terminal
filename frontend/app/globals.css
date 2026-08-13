@@ -35,3 +35,50 @@ body {
     var(--background);
   background-attachment: fixed;
 }
+
+/* Landing hero: drifting gradient orbs */
+@keyframes orb-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(4%, 6%) scale(1.08); }
+}
+
+@keyframes orb-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-5%, -4%) scale(1.05); }
+}
+
+@keyframes orb-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(3%, -5%) scale(1.1); }
+}
+
+.orb-1 { animation: orb-drift-1 14s ease-in-out infinite; }
+.orb-2 { animation: orb-drift-2 18s ease-in-out infinite; }
+.orb-3 { animation: orb-drift-3 16s ease-in-out infinite; }
+
+/* Landing hero: scrolling ticker tape */
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.ticker-track {
+  animation: ticker-scroll 32s linear infinite;
+}
+
+/* Landing hero: shimmering gradient text */
+@keyframes text-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.shimmer-text {
+  background-size: 200% auto;
+  animation: text-shimmer 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-1, .orb-2, .orb-3, .ticker-track, .shimmer-text {
+    animation: none !important;
+  }
+}

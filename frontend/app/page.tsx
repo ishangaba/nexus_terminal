@@ -31,7 +31,7 @@ import {
   TickerContext,
 } from "@/lib/api";
 
-const PRICE_AUTO_REFRESH_MS = 30_000;
+const PRICE_AUTO_REFRESH_MS = 10_000;
 
 export default function Home() {
   const [data, setData] = useState<TickerContext | null>(null);

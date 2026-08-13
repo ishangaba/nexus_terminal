@@ -38,6 +38,19 @@ async def get_company_news(symbol: str, from_date: str, to_date: str) -> list[di
         raise wrap_httpx_error(PROVIDER, exc) from exc
 
 
+async def search_symbols(query: str) -> list[dict]:
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{BASE_URL}/search",
+                params={"q": query, "token": settings.finnhub_api_key},
+            )
+            resp.raise_for_status()
+            return resp.json().get("result", [])
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise wrap_httpx_error(PROVIDER, exc) from exc
+
+
 async def get_company_profile(symbol: str) -> dict:
     try:
         async with httpx.AsyncClient() as client:

@@ -5,7 +5,7 @@ from db.database import get_connection
 
 FUNDAMENTALS_TTL_HOURS = 20
 FILINGS_TTL_HOURS = 12
-NEWS_TTL_HOURS = 2
+NEWS_TTL_HOURS = 1
 GRAPH_BUILD_TTL_HOURS = 24 * 7  # subsidiary/contract data barely changes; rebuild weekly
 
 
