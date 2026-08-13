@@ -345,6 +345,143 @@ def get_all_settings() -> dict[str, str]:
     return {row["key"]: row["value"] for row in rows}
 
 
+def create_trade_signal(
+    symbol: str,
+    direction: str,
+    action: str,
+    confidence: str,
+    summary: str,
+    reasoning: list[str],
+    key_risks: list[str],
+    price_at_signal: float,
+    evaluation_days: int = 5,
+) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO trade_signal
+                (symbol, direction, action, confidence, summary, reasoning_json, key_risks_json,
+                 price_at_signal, evaluation_days)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                symbol, direction, action, confidence, summary,
+                json.dumps(reasoning), json.dumps(key_risks), price_at_signal, evaluation_days,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def _trade_signal_view(row: dict) -> dict:
+    view = dict(row)
+    view["reasoning"] = json.loads(view.pop("reasoning_json"))
+    view["key_risks"] = json.loads(view.pop("key_risks_json"))
+    return view
+
+
+def get_trade_signal(signal_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM trade_signal WHERE id = ?", (signal_id,)).fetchone()
+    finally:
+        conn.close()
+    return _trade_signal_view(dict(row)) if row else None
+
+
+def get_trade_signals_for_symbol(symbol: str, limit: int = 20) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM trade_signal WHERE symbol = ? ORDER BY generated_at DESC LIMIT ?",
+            (symbol, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_trade_signal_view(dict(row)) for row in rows]
+
+
+def set_signal_decision(signal_id: int, decision: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE trade_signal SET user_decision = ? WHERE id = ?", (decision, signal_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_signal_user_outcome(signal_id: int, outcome: str, notes: str | None = None) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE trade_signal SET user_outcome = ?, user_notes = ? WHERE id = ?",
+            (outcome, notes, signal_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_unresolved_signals_past_window() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM trade_signal
+            WHERE auto_outcome IS NULL
+              AND action != 'stay_out'
+              AND datetime(generated_at, '+' || evaluation_days || ' days') <= datetime('now')
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_trade_signal_view(dict(row)) for row in rows]
+
+
+def resolve_signal_outcome(signal_id: int, auto_outcome: str, resolution_price: float) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE trade_signal
+            SET auto_outcome = ?, resolution_price = ?, auto_resolved_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (auto_outcome, resolution_price, signal_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_symbol_track_record(symbol: str) -> dict:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT COALESCE(auto_outcome, user_outcome) AS outcome
+            FROM trade_signal
+            WHERE symbol = ? AND (auto_outcome IS NOT NULL OR user_outcome IS NOT NULL)
+            """,
+            (symbol,),
+        ).fetchall()
+    finally:
+        conn.close()
+    outcomes = [row["outcome"] for row in rows]
+    return {
+        "resolved_count": len(outcomes),
+        "correct_count": sum(1 for o in outcomes if o == "correct"),
+        "incorrect_count": sum(1 for o in outcomes if o == "incorrect"),
+    }
+
+
 def insert_news_item(
     symbol: str, headline: str, source: str, url: str, published_at: str, sentiment_score: float | None
 ) -> None:

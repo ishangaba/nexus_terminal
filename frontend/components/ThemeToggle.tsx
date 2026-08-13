@@ -13,6 +13,7 @@ export default function ThemeToggle() {
     const next = !isDark;
     setIsDark(next);
     document.documentElement.classList.toggle("dark", next);
+    window.dispatchEvent(new Event("theme-change"));
     localStorage.setItem("nexus-theme", next ? "dark" : "light");
   }
 

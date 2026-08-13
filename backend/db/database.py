@@ -88,6 +88,26 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS trade_signal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    generated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    direction TEXT NOT NULL,
+    action TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    reasoning_json TEXT NOT NULL,
+    key_risks_json TEXT NOT NULL,
+    price_at_signal REAL NOT NULL,
+    user_decision TEXT,
+    user_outcome TEXT,
+    user_notes TEXT,
+    auto_outcome TEXT,
+    auto_resolved_at TEXT,
+    resolution_price REAL,
+    evaluation_days INTEGER NOT NULL DEFAULT 5
+);
 """
 
 

@@ -17,7 +17,7 @@ from services.errors import ProviderError
 
 MAX_NEWS_ITEMS = 8
 FINNHUB_NEWS_CANDIDATES = 6
-CHART_DAYS = 30
+CHART_DAYS = 100
 
 
 def _safe_float(value) -> float | None:
@@ -100,6 +100,7 @@ async def _get_chart_data(symbol: str) -> tuple[list[dict], str | None]:
             "high": _safe_float(values.get("2. high")),
             "low": _safe_float(values.get("3. low")),
             "close": _safe_float(values.get("4. close")),
+            "volume": _safe_float(values.get("5. volume")),
         }
         for date, values in sorted(daily.items())[-CHART_DAYS:]
     ]
@@ -230,6 +231,29 @@ async def _get_filings(symbol: str) -> tuple[list[dict], str | None]:
     return filings, None
 
 
+def _build_price(quote: dict) -> dict:
+    return {
+        "last": quote.get("c"),
+        "change": quote.get("d"),
+        "change_pct": quote.get("dp"),
+        "open": quote.get("o"),
+        "high": quote.get("h"),
+        "low": quote.get("l"),
+        "timestamp": datetime.fromtimestamp(quote.get("t", 0), tz=timezone.utc).isoformat()
+        if quote.get("t")
+        else datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def get_live_price(symbol: str) -> dict:
+    """Just the live quote — used for lightweight price-only refreshes (no chart/news/etc)."""
+    symbol = symbol.upper()
+    quote = await finnhub.get_quote(symbol)
+    if not quote or quote.get("c") in (None, 0):
+        raise ValueError(f"No price data found for symbol '{symbol}'")
+    return _build_price(quote)
+
+
 async def gather_context(symbol: str) -> dict:
     """Everything needed to ground an AI brief or a Q&A answer, minus the AI call itself."""
     symbol = symbol.upper()
@@ -243,14 +267,7 @@ async def gather_context(symbol: str) -> dict:
     news, news_err = await _get_news(symbol)
     filings, filings_err = await _get_filings(symbol)
 
-    price = {
-        "last": quote.get("c"),
-        "change": quote.get("d"),
-        "change_pct": quote.get("dp"),
-        "timestamp": datetime.fromtimestamp(quote.get("t", 0), tz=timezone.utc).isoformat()
-        if quote.get("t")
-        else datetime.now(timezone.utc).isoformat(),
-    }
+    price = _build_price(quote)
 
     errors = {
         key: message

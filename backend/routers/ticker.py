@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services import claude_analyst
-from services.aggregator import gather_context
+from services.aggregator import gather_context, get_live_price
 from services.errors import ProviderError
 
 router = APIRouter(prefix="/api/v1")
@@ -27,6 +27,16 @@ async def read_ticker(symbol: str):
         raise HTTPException(status_code=502, detail=exc.message) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Upstream data error: {exc}") from exc
+
+
+@router.get("/ticker/{symbol}/price")
+async def read_live_price(symbol: str):
+    try:
+        return await get_live_price(symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.message) from exc
 
 
 @router.post("/ticker/{symbol}/brief")

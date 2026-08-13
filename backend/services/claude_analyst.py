@@ -2,7 +2,7 @@ import json
 from typing import Literal
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from config import settings
 from services.errors import ProviderError
@@ -33,6 +33,12 @@ BRIEF_MODEL = "claude-sonnet-5"
 ASK_MODEL = "claude-sonnet-5"
 SENTIMENT_MODEL = "claude-haiku-4-5"
 EXTRACTION_MODEL = "claude-haiku-4-5"
+# Opus, not Sonnet: these are the app's highest-stakes synthesis calls (a real buy/sell verdict
+# and decisive follow-up answers about it), and the cost delta is negligible at this app's volume.
+SIGNAL_MODEL = "claude-opus-5"
+SIGNAL_ASK_MODEL = "claude-opus-5"
+
+SIGNAL_DISCLAIMER = "Informational synthesis of available data — not registered investment advice."
 
 BRIEF_SYSTEM_PROMPT = (
     "You are a financial analyst assistant. You will be given real, current data "
@@ -72,6 +78,44 @@ GRAPH_INSIGHTS_SYSTEM_PROMPT = (
     "contract exposure, or a competitive/supply relationship worth knowing about. Ground every "
     "claim in the provided data only. If the graph is sparse or unremarkable, say so briefly "
     "rather than padding. Never give financial advice."
+)
+
+
+SIGNAL_SYSTEM_PROMPT = (
+    "You are a trade-signal engine. You will be given real, current data about a stock: "
+    "price action, technical indicators (SMA, RSI, MACD, Bollinger Bands), fundamentals, "
+    "recent news headlines with sentiment scores, and recent SEC filings. Synthesize ALL of "
+    "this into ONE clear, decisive directional call — bullish or bearish (use neutral only if "
+    "the data is genuinely and evenly conflicting, not as a default hedge) — and a concrete "
+    "suggested action: buy_call, buy_put, or stay_out. Commit to a real answer. Do not "
+    "equivocate, do not present both sides as equally likely when the data actually leans one "
+    "way, and do not tell the user to consult a financial advisor or do further research of "
+    "their own — giving the call IS your job here, not deferring it. Ground every reasoning "
+    "point in the specific data you were given: cite actual indicator values, the direction of "
+    "sentiment, or specific filing content — not generic statements that could apply to any "
+    "stock. List the concrete risks that could invalidate this specific call. Do not add your "
+    "own caveat about this not being financial advice — that is handled separately outside "
+    "your output."
+)
+
+SIGNAL_TRACK_RECORD_ADDENDUM = (
+    "You will also be given your own track record of past signals for this stock, if any exist "
+    "— use it to calibrate confidence and direction (e.g., don't default to high confidence on "
+    "a bearish call if past bearish calls here were frequently wrong)."
+)
+
+SIGNAL_ASK_SYSTEM_PROMPT = (
+    "You are the same trade-signal engine that generated the trade call the user is now asking "
+    "about. You will be given the original signal (direction, action, confidence, summary, "
+    "reasoning, key risks) plus the same underlying data it was based on: price action, "
+    "technical indicators, fundamentals, recent news with sentiment scores, and recent SEC "
+    "filings. Answer the user's follow-up question directly and decisively, grounded in that "
+    "data and the signal you already gave. Do not hedge, do not walk back the call, and do not "
+    "tell the user to do their own research or consult a financial advisor — you already made "
+    "the call, this is you explaining or refining it. If the question asks what would change "
+    "the call, name the specific data point or threshold. Keep the answer under 150 words. Do "
+    "not add a caveat about this not being financial advice — that is handled separately "
+    "outside your output."
 )
 
 
@@ -170,6 +214,114 @@ def generate_graph_insights(symbol: str, graph: dict) -> str:
             max_tokens=250,
             system=GRAPH_INSIGHTS_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": json.dumps({"symbol": symbol, "graph_summary": summary})}],
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
+    return next((b.text for b in response.content if b.type == "text"), "")
+
+
+class TradeSignal(BaseModel):
+    direction: Literal["bullish", "bearish", "neutral"]
+    action: Literal["buy_call", "buy_put", "stay_out"]
+    confidence: Literal["low", "medium", "high"]
+    summary: str
+    reasoning: list[str]
+    key_risks: list[str]
+
+
+def generate_trade_signal(
+    symbol: str,
+    price: dict,
+    fundamentals: dict,
+    news: list[dict],
+    filings: list[dict],
+    technical_indicators: dict,
+    track_record: dict | None = None,
+) -> TradeSignal | None:
+    payload = _build_context_payload(symbol, price, fundamentals, news, filings)
+    payload["technical_indicators"] = technical_indicators
+
+    # Zero-history case (no track_record, or nothing resolved yet) is left as the original,
+    # unmodified prompt/payload shape — this is not an error state, just the common case for a
+    # symbol's first-ever signal.
+    has_track_record = bool(track_record) and track_record.get("resolved_count", 0) > 0
+    system_prompt = SIGNAL_SYSTEM_PROMPT
+    if has_track_record:
+        payload["track_record"] = track_record
+        system_prompt = f"{SIGNAL_SYSTEM_PROMPT}\n\n{SIGNAL_TRACK_RECORD_ADDENDUM}"
+
+    try:
+        response = _client.messages.parse(
+            model=SIGNAL_MODEL,
+            # Generous headroom: on Claude Opus 5, max_tokens caps thinking + output combined
+            # (thinking is on by default whenever `thinking` is omitted), so a tight cap risks
+            # truncating the JSON mid-string on a symbol with a lot to say — 1200 was tuned for
+            # Sonnet 5's shorter adaptive-thinking footprint and wasn't enough headroom here.
+            max_tokens=4000,
+            output_config={"effort": "medium"},
+            system=system_prompt,
+            # cache_control caches system+payload together as one prefix — pays off if the same
+            # signal is quickly regenerated with unchanged inputs, within the cache TTL.
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": json.dumps(payload), "cache_control": {"type": "ephemeral"}}
+                    ],
+                }
+            ],
+            output_format=TradeSignal,
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
+    except ValidationError as exc:
+        # response.parse() raises here (rather than returning None) when the model's output was
+        # cut off before max_tokens could close out the JSON. Surface it as a retryable
+        # ProviderError instead of a raw 500.
+        raise ProviderError(PROVIDER, f"{PROVIDER}: response was cut off before it could be parsed — try again.") from exc
+    return response.parsed_output
+
+
+def answer_signal_question(
+    symbol: str,
+    signal: dict,
+    price: dict,
+    fundamentals: dict,
+    news: list[dict],
+    filings: list[dict],
+    technical_indicators: dict,
+    question: str,
+) -> str:
+    payload = _build_context_payload(symbol, price, fundamentals, news, filings)
+    payload["technical_indicators"] = technical_indicators
+    payload["signal_already_given"] = {
+        "direction": signal.get("direction"),
+        "action": signal.get("action"),
+        "confidence": signal.get("confidence"),
+        "summary": signal.get("summary"),
+        "reasoning": signal.get("reasoning"),
+        "key_risks": signal.get("key_risks"),
+    }
+    try:
+        response = _client.messages.create(
+            model=SIGNAL_ASK_MODEL,
+            # Same headroom reasoning as generate_trade_signal: thinking + output share this cap.
+            max_tokens=1500,
+            output_config={"effort": "medium"},
+            system=SIGNAL_ASK_SYSTEM_PROMPT,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        # Shared block (signal + underlying data) is identical across repeat
+                        # follow-up questions about the same signal — cache_control here lets a
+                        # second/third question in the same session read from cache instead of
+                        # re-paying for the whole context. Only the trailing question varies.
+                        {"type": "text", "text": json.dumps(payload), "cache_control": {"type": "ephemeral"}},
+                        {"type": "text", "text": f"Question: {question}"},
+                    ],
+                }
+            ],
         )
     except anthropic.APIError as exc:
         raise _wrap_anthropic_error(exc) from exc

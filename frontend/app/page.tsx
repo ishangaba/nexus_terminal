@@ -11,6 +11,7 @@ import Portfolio from "@/components/Portfolio";
 import Skeleton from "@/components/Skeleton";
 import Filings from "@/components/Filings";
 import AskBox from "@/components/AskBox";
+import TradeSignal from "@/components/TradeSignal";
 import SentimentGauge from "@/components/SentimentGauge";
 import MarketStatus from "@/components/MarketStatus";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -18,15 +19,19 @@ import Logo from "@/components/Logo";
 import Hero from "@/components/Hero";
 import GraphView from "@/components/GraphView";
 import SettingsPanel from "@/components/SettingsPanel";
+import { useAutoRefresh } from "@/hooks/useAutoRefresh";
 import {
   addToWatchlist,
   fetchBrief,
   fetchGraph,
   fetchGraphInsights,
+  fetchLivePrice,
   fetchTicker,
   CompanyGraph,
   TickerContext,
 } from "@/lib/api";
+
+const PRICE_AUTO_REFRESH_MS = 30_000;
 
 export default function Home() {
   const [data, setData] = useState<TickerContext | null>(null);
@@ -122,6 +127,18 @@ export default function Home() {
     }
   }
 
+  async function refreshPrice() {
+    if (!data) return;
+    try {
+      const price = await fetchLivePrice(data.symbol);
+      setData((prev) => (prev ? { ...prev, price } : prev));
+    } catch {
+      // silent — the currently-shown price is still valid, next tick retries
+    }
+  }
+
+  useAutoRefresh(refreshPrice, PRICE_AUTO_REFRESH_MS);
+
   async function handleAddToWatchlist() {
     if (!data) return;
     setAddingToWatchlist(true);
@@ -210,13 +227,14 @@ export default function Home() {
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
               <div className="lg:col-span-2">
-                <PriceChart chartData={data.chart_data} error={data.errors?.chart_data} />
+                <PriceChart chartData={data.chart_data} livePrice={data.price} error={data.errors?.chart_data} />
               </div>
               <SentimentGauge news={data.news} />
 
               <div className="flex flex-col gap-6 lg:col-span-2">
                 <AIBrief brief={brief} loading={briefLoading} error={briefError} />
                 <AskBox symbol={data.symbol} graph={graph} />
+                <TradeSignal data={data} />
               </div>
               <Filings filings={data.filings} error={data.errors?.filings} />
 

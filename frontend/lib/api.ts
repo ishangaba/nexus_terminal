@@ -1,9 +1,14 @@
+import type { TechnicalSnapshot } from "./technicalSnapshot";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export interface TickerPrice {
   last: number;
   change: number;
   change_pct: number;
+  open: number | null;
+  high: number | null;
+  low: number | null;
   timestamp: string;
 }
 
@@ -21,6 +26,7 @@ export interface ChartPoint {
   high: number | null;
   low: number | null;
   close: number | null;
+  volume: number | null;
 }
 
 export interface NewsItem {
@@ -88,6 +94,11 @@ export async function fetchTicker(symbol: string): Promise<TickerContext> {
   return handleResponse<TickerContext>(res);
 }
 
+export async function fetchLivePrice(symbol: string): Promise<TickerPrice> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/price`);
+  return handleResponse<TickerPrice>(res);
+}
+
 export async function fetchBrief(symbol: string, context: Omit<TickerContext, "symbol" | "chart_data">): Promise<string> {
   const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/brief`, {
     method: "POST",
@@ -96,6 +107,122 @@ export async function fetchBrief(symbol: string, context: Omit<TickerContext, "s
   });
   const data = await handleResponse<{ ai_brief: string }>(res);
   return data.ai_brief;
+}
+
+export type SignalDecision = "accepted" | "rejected";
+export type SignalOutcome = "correct" | "incorrect" | "mixed";
+
+export interface TradeSignal {
+  id: number;
+  symbol: string;
+  direction: "bullish" | "bearish" | "neutral";
+  action: "buy_call" | "buy_put" | "stay_out";
+  confidence: "low" | "medium" | "high";
+  summary: string;
+  reasoning: string[];
+  key_risks: string[];
+  note: string;
+  user_decision: SignalDecision | null;
+  user_outcome: SignalOutcome | null;
+  auto_outcome: "correct" | "incorrect" | null;
+}
+
+export interface SignalHistoryEntry {
+  id: number;
+  symbol: string;
+  generated_at: string;
+  direction: TradeSignal["direction"];
+  action: TradeSignal["action"];
+  confidence: TradeSignal["confidence"];
+  summary: string;
+  reasoning: string[];
+  key_risks: string[];
+  price_at_signal: number;
+  user_decision: SignalDecision | null;
+  user_outcome: SignalOutcome | null;
+  user_notes: string | null;
+  auto_outcome: "correct" | "incorrect" | null;
+  auto_resolved_at: string | null;
+  resolution_price: number | null;
+  evaluation_days: number;
+}
+
+export interface TrackRecord {
+  resolved_count: number;
+  correct_count: number;
+  incorrect_count: number;
+}
+
+export interface SignalHistoryResponse {
+  signals: SignalHistoryEntry[];
+  track_record: TrackRecord;
+}
+
+export async function fetchTradeSignal(
+  symbol: string,
+  context: Omit<TickerContext, "symbol" | "chart_data">,
+  technicalIndicators: TechnicalSnapshot
+): Promise<TradeSignal> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/signal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...context, technical_indicators: technicalIndicators }),
+  });
+  return handleResponse<TradeSignal>(res);
+}
+
+export async function recordSignalDecision(
+  symbol: string,
+  signalId: number,
+  decision: SignalDecision
+): Promise<SignalHistoryEntry> {
+  const res = await fetch(
+    `${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/signal/${signalId}/decision`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    }
+  );
+  return handleResponse<SignalHistoryEntry>(res);
+}
+
+export async function recordSignalOutcome(
+  symbol: string,
+  signalId: number,
+  outcome: SignalOutcome,
+  notes?: string
+): Promise<SignalHistoryEntry> {
+  const res = await fetch(
+    `${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/signal/${signalId}/outcome`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome, notes }),
+    }
+  );
+  return handleResponse<SignalHistoryEntry>(res);
+}
+
+export async function askAboutSignal(
+  symbol: string,
+  signalId: number,
+  context: Omit<TickerContext, "symbol" | "chart_data">,
+  technicalIndicators: TechnicalSnapshot,
+  question: string
+): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/signal/${signalId}/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...context, technical_indicators: technicalIndicators, question }),
+  });
+  const data = await handleResponse<{ answer: string }>(res);
+  return data.answer;
+}
+
+export async function fetchSignalHistory(symbol: string): Promise<SignalHistoryResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/ticker/${encodeURIComponent(symbol)}/signal/history`);
+  return handleResponse<SignalHistoryResponse>(res);
 }
 
 export async function fetchWatchlist(): Promise<WatchlistQuote[]> {
