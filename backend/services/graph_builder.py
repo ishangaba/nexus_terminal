@@ -53,7 +53,10 @@ async def _build_news_relationships(symbol: str, headlines: list[str]) -> None:
         return
 
     for rel in relationships:
-        await graph.link_news_relationship(symbol, rel.other_ticker.upper(), rel.relationship, rel.evidence)
+        await graph.link_news_relationship(
+            symbol, rel.other_ticker.upper(), rel.relationship, rel.evidence,
+            confidence=graph.INFERRED_CONFIDENCE,
+        )
 
 
 async def build_company_graph(symbol: str, company_name: str, sector: str, country: str, headlines: list[str]) -> None:

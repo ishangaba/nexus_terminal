@@ -15,7 +15,7 @@ from intelligence.models.evidence import Evidence
 from intelligence.models.findings import AnalyticalFinding
 from intelligence.models.thesis import ResearchThesis
 from intelligence.router_logic import ALL_TOOLS
-from intelligence.tools import earnings_tool, fundamentals_tool, macro_tool, news_tool, sec_tool, technical_tool
+from intelligence.tools import earnings_tool, fundamentals_tool, graph_tool, macro_tool, news_tool, sec_tool, technical_tool
 from services import claude_analyst, finnhub, fred
 from services.aggregator import gather_context
 
@@ -108,6 +108,16 @@ async def run_research(
         evidence.extend(macro_evidence)
         if macro_finding is not None:
             findings.append(macro_finding)
+
+    if "graph" in categories:
+        try:
+            graph_evidence, graph_finding = await graph_tool.analyze(ticker)
+        except Exception:
+            logger.exception("Failed to fetch graph exposure for %s", ticker)
+            graph_evidence, graph_finding = [], None
+        evidence.extend(graph_evidence)
+        if graph_finding is not None:
+            findings.append(graph_finding)
 
     return await _synthesize(ticker, findings, evidence, question)
 

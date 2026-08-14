@@ -32,6 +32,11 @@ TOOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "inflation", "cpi", "fed ", "federal reserve", "interest rate", "unemployment",
         "macro", "economy", "recession", "gdp",
     ),
+    "graph": (
+        "supplier", "supply chain", "competitor", "competitors", "subsidiary", "subsidiaries",
+        "government contract", "gov't contract", "exposure", "graph", "related compan",
+        "partner", "customer concentration",
+    ),
 }
 
 ALL_TOOLS: frozenset[str] = frozenset(TOOL_KEYWORDS.keys())

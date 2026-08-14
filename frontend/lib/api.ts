@@ -65,6 +65,7 @@ export interface GraphNode {
   label: string;
   type: "Company" | "GovEntity" | string;
   symbol: string | null;
+  country?: string | null;
 }
 
 export interface GraphEdge {
@@ -74,6 +75,8 @@ export interface GraphEdge {
   amount?: number | null;
   date?: string | null;
   evidence?: string | null;
+  confidence?: number | null;
+  retrieved_at?: string | null;
 }
 
 export interface CompanyGraph {

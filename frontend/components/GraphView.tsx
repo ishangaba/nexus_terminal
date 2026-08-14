@@ -13,14 +13,22 @@ interface GraphViewProps {
 }
 
 type SimNode = GraphNode & d3.SimulationNodeDatum;
-type SimEdge = d3.SimulationLinkDatum<SimNode> & { type: string };
+type SimEdge = d3.SimulationLinkDatum<SimNode> & {
+  type: string;
+  confidence: number | null;
+  retrieved_at: string | null;
+};
 
-const EDGE_STYLE: Record<string, { color: string; dash: string }> = {
-  SUBSIDIARY_OF: { color: "#71717a", dash: "" },
-  HAS_CONTRACT: { color: "#d97706", dash: "4,3" },
-  SUPPLIES_TO: { color: "#10b981", dash: "" },
-  COMPETES_WITH: { color: "#f43f5e", dash: "4,3" },
-  PARTNERS_WITH: { color: "#8b5cf6", dash: "" },
+// Color encodes relationship type. Line style encodes confidence/provenance — solid means
+// confirmed from a primary record (SEC filing, USASpending.gov), dashed means Claude inferred
+// it from a news headline, dotted means the edge predates confidence tracking (self-heals to a
+// real value on the next weekly graph rebuild).
+const EDGE_COLOR: Record<string, string> = {
+  SUBSIDIARY_OF: "#71717a",
+  HAS_CONTRACT: "#d97706",
+  SUPPLIES_TO: "#10b981",
+  COMPETES_WITH: "#f43f5e",
+  PARTNERS_WITH: "#8b5cf6",
 };
 
 const EDGE_LABELS: Record<string, string> = {
@@ -29,6 +37,33 @@ const EDGE_LABELS: Record<string, string> = {
   SUPPLIES_TO: "Supplies to",
   COMPETES_WITH: "Competes with",
   PARTNERS_WITH: "Partners with",
+};
+
+const CONFIRMED_THRESHOLD = 0.9;
+
+type ConfidenceTier = "confirmed" | "inferred" | "unknown";
+
+function confidenceTier(confidence: number | null | undefined): ConfidenceTier {
+  if (confidence === null || confidence === undefined) return "unknown";
+  return confidence >= CONFIRMED_THRESHOLD ? "confirmed" : "inferred";
+}
+
+const TIER_DASH: Record<ConfidenceTier, string> = {
+  confirmed: "",
+  inferred: "4,3",
+  unknown: "1,3",
+};
+
+const TIER_OPACITY: Record<ConfidenceTier, number> = {
+  confirmed: 0.85,
+  inferred: 0.7,
+  unknown: 0.4,
+};
+
+const TIER_LABEL: Record<ConfidenceTier, string> = {
+  confirmed: "Confirmed (primary record)",
+  inferred: "AI-inferred from news",
+  unknown: "Unverified (pre-dates confidence tracking)",
 };
 
 export default function GraphView({ graph, centerSymbol, onSelect, insights, insightsLoading }: GraphViewProps) {
@@ -48,7 +83,13 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
     svg.attr("viewBox", `0 0 ${width} ${height}`);
 
     const nodes: SimNode[] = graph.nodes.map((n) => ({ ...n }));
-    const edges: SimEdge[] = graph.edges.map((e) => ({ source: e.source, target: e.target, type: e.type }));
+    const edges: SimEdge[] = graph.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      type: e.type,
+      confidence: e.confidence ?? null,
+      retrieved_at: e.retrieved_at ?? null,
+    }));
 
     const linkDistance = Math.min(160, 70 + nodeCount * 3);
 
@@ -72,12 +113,17 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
       .selectAll("line")
       .data(edges)
       .join("line")
-      .attr("stroke", (d) => EDGE_STYLE[d.type]?.color ?? "#a1a1aa")
-      .attr("stroke-dasharray", (d) => EDGE_STYLE[d.type]?.dash ?? "")
+      .attr("stroke", (d) => EDGE_COLOR[d.type] ?? "#a1a1aa")
+      .attr("stroke-dasharray", (d) => TIER_DASH[confidenceTier(d.confidence)])
       .attr("stroke-width", 1.5)
-      .attr("stroke-opacity", 0.7);
+      .attr("stroke-opacity", (d) => TIER_OPACITY[confidenceTier(d.confidence)]);
 
-    link.append("title").text((d) => EDGE_LABELS[d.type] ?? d.type);
+    link.append("title").text((d) => {
+      const label = EDGE_LABELS[d.type] ?? d.type;
+      const tier = TIER_LABEL[confidenceTier(d.confidence)];
+      const confidencePct = d.confidence != null ? `${Math.round(d.confidence * 100)}%` : "unknown";
+      return `${label} — ${tier} (confidence: ${confidencePct})`;
+    });
 
     const drag = d3
       .drag<SVGGElement, SimNode>()
@@ -165,6 +211,7 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
   }, [graph, centerSymbol, onSelect]);
 
   const usedEdgeTypes = Array.from(new Set(graph.edges.map((e) => e.type)));
+  const usedConfidenceTiers = Array.from(new Set(graph.edges.map((e) => confidenceTier(e.confidence)))) as ConfidenceTier[];
   const hasGovEntity = graph.nodes.some((n) => n.type === "GovEntity");
   const hasClickableCompany = graph.nodes.some((n) => n.type === "Company" && n.id !== centerSymbol && n.symbol);
   const hasNonClickableCompany = graph.nodes.some((n) => n.type === "Company" && n.id !== centerSymbol && !n.symbol);
@@ -234,17 +281,29 @@ export default function GraphView({ graph, centerSymbol, onSelect, insights, ins
           <span className="font-medium text-zinc-500 dark:text-zinc-500">Relationships:</span>
           {usedEdgeTypes.map((type) => (
             <span key={type} className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+              <span className="inline-block h-0.5 w-4" style={{ backgroundColor: EDGE_COLOR[type] ?? "#a1a1aa", opacity: 0.9 }} />
+              {EDGE_LABELS[type] ?? type}
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-medium text-zinc-500 dark:text-zinc-500">Confidence:</span>
+          {usedConfidenceTiers.map((tier) => (
+            <span key={tier} className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <span
                 className="inline-block h-0.5 w-4"
                 style={{
-                  backgroundColor: EDGE_STYLE[type]?.color ?? "#a1a1aa",
-                  opacity: 0.9,
-                  backgroundImage: EDGE_STYLE[type]?.dash
-                    ? `repeating-linear-gradient(to right, ${EDGE_STYLE[type]?.color} 0 3px, transparent 3px 6px)`
-                    : undefined,
+                  backgroundColor: "currentColor",
+                  opacity: TIER_OPACITY[tier],
+                  backgroundImage:
+                    TIER_DASH[tier] !== ""
+                      ? `repeating-linear-gradient(to right, currentColor 0 ${tier === "unknown" ? 1 : 3}px, transparent ${
+                          tier === "unknown" ? 1 : 3
+                        }px ${tier === "unknown" ? 3 : 6}px)`
+                      : undefined,
                 }}
               />
-              {EDGE_LABELS[type] ?? type}
+              {TIER_LABEL[tier]}
             </span>
           ))}
         </div>
