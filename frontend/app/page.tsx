@@ -37,6 +37,7 @@ const PRICE_AUTO_REFRESH_MS = 10_000;
 
 export default function Home() {
   const [data, setData] = useState<TickerContext | null>(null);
+  const [navHistory, setNavHistory] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +130,23 @@ export default function Home() {
     }
   }
 
+  function handleFreshSearch(symbol: string) {
+    setNavHistory([]);
+    handleSearch(symbol);
+  }
+
+  function handleGraphNavigate(symbol: string) {
+    if (data) setNavHistory((prev) => [...prev, data.symbol]);
+    handleSearch(symbol);
+  }
+
+  function handleBack() {
+    if (navHistory.length === 0) return;
+    const previousSymbol = navHistory[navHistory.length - 1];
+    setNavHistory((prev) => prev.slice(0, -1));
+    handleSearch(previousSymbol);
+  }
+
   async function refreshPrice() {
     if (!data) return;
     try {
@@ -184,9 +202,9 @@ export default function Home() {
 
         {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
-        <TickerSearch onSearch={handleSearch} loading={loading} />
+        <TickerSearch onSearch={handleFreshSearch} loading={loading} />
 
-        <Watchlist onSelect={handleSearch} refreshKey={watchlistRefresh} />
+        <Watchlist onSelect={handleFreshSearch} refreshKey={watchlistRefresh} />
 
         <Portfolio />
 
@@ -200,17 +218,27 @@ export default function Home() {
 
         {loading && <Skeleton />}
 
-        {!loading && !data && !error && <Hero onQuickStart={handleSearch} />}
+        {!loading && !data && !error && <Hero onQuickStart={handleFreshSearch} />}
 
         {!loading && data && (
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <PriceCard
-                symbol={data.symbol}
-                price={data.price}
-                fundamentals={data.fundamentals}
-                fundamentalsError={data.errors?.fundamentals}
-              />
+              <div className="flex flex-col gap-2">
+                {navHistory.length > 0 && (
+                  <button
+                    onClick={handleBack}
+                    className="flex w-fit items-center gap-1 text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    ← Back to {navHistory[navHistory.length - 1]}
+                  </button>
+                )}
+                <PriceCard
+                  symbol={data.symbol}
+                  price={data.price}
+                  fundamentals={data.fundamentals}
+                  fundamentalsError={data.errors?.fundamentals}
+                />
+              </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => handleSearch(data.symbol, true)}
@@ -262,7 +290,7 @@ export default function Home() {
                   <GraphView
                     graph={graph}
                     centerSymbol={data.symbol}
-                    onSelect={handleSearch}
+                    onSelect={handleGraphNavigate}
                     insights={graphInsights}
                     insightsLoading={graphInsightsLoading}
                   />
