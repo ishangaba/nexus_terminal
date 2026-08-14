@@ -117,11 +117,22 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+TRADE_SIGNAL_RETURN_COLUMNS = (
+    "return_1d", "return_3d", "return_5d", "return_10d", "return_20d",
+    "benchmark_return", "sector_return", "mfe", "mae",
+)
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Lightweight additive migrations for columns added after tables already existed."""
     existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ticker)")}
     if "country" not in existing_columns:
         conn.execute("ALTER TABLE ticker ADD COLUMN country TEXT")
+
+    signal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(trade_signal)")}
+    for column in TRADE_SIGNAL_RETURN_COLUMNS:
+        if column not in signal_columns:
+            conn.execute(f"ALTER TABLE trade_signal ADD COLUMN {column} REAL")
 
 
 def init_db() -> None:

@@ -13,6 +13,7 @@ import Filings from "@/components/Filings";
 import AskBox from "@/components/AskBox";
 import TradeSignal from "@/components/TradeSignal";
 import Research from "@/components/Research";
+import ModelPerformance from "@/components/ModelPerformance";
 import SentimentGauge from "@/components/SentimentGauge";
 import MarketStatus from "@/components/MarketStatus";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -188,6 +189,8 @@ export default function Home() {
         <Watchlist onSelect={handleSearch} refreshKey={watchlistRefresh} />
 
         <Portfolio />
+
+        <ModelPerformance />
 
         {error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400">

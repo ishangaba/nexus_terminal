@@ -439,3 +439,48 @@ export async function askResearch(ticker: string, question: string): Promise<Res
   });
   return handleResponse<ResearchQueryResponse>(res);
 }
+
+export interface HorizonStats {
+  n: number;
+  avg_directional_return_pct: number | null;
+  median_directional_return_pct: number | null;
+}
+
+export type ReturnHorizon = "return_1d" | "return_3d" | "return_5d" | "return_10d" | "return_20d";
+
+export interface SignalPerformance {
+  total_signals: number;
+  resolved_count: number;
+  win_rate: number | null;
+  bullish_accuracy: number | null;
+  bullish_n: number;
+  bearish_accuracy: number | null;
+  bearish_n: number;
+  horizons: Record<ReturnHorizon, HorizonStats>;
+  avg_alpha_vs_benchmark_5d_pct: number | null;
+  alpha_sample_size: number;
+}
+
+export type ConfidenceLevel = "low" | "medium" | "high";
+
+export interface ConfidenceBucket {
+  n: number;
+  correct: number;
+  accuracy: number | null;
+}
+
+export interface SignalCalibration {
+  buckets: Record<ConfidenceLevel, ConfidenceBucket>;
+  brier_score: number | null;
+  brier_sample_size: number;
+}
+
+export async function fetchSignalPerformance(): Promise<SignalPerformance> {
+  const res = await fetch(`${API_BASE}/api/signals/performance`);
+  return handleResponse<SignalPerformance>(res);
+}
+
+export async function fetchSignalCalibration(): Promise<SignalCalibration> {
+  const res = await fetch(`${API_BASE}/api/signals/calibration`);
+  return handleResponse<SignalCalibration>(res);
+}

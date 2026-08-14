@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from db.database import get_connection
+from db.database import TRADE_SIGNAL_RETURN_COLUMNS, get_connection
 
 FUNDAMENTALS_TTL_HOURS = 20
 FILINGS_TTL_HOURS = 12
@@ -480,6 +480,55 @@ def get_symbol_track_record(symbol: str) -> dict:
         "correct_count": sum(1 for o in outcomes if o == "correct"),
         "incorrect_count": sum(1 for o in outcomes if o == "incorrect"),
     }
+
+
+def get_directional_signals() -> list[dict]:
+    """All buy_call/buy_put signals — resolved or not — for performance/calibration aggregation.
+    stay_out is excluded: there's no directional claim to score against price movement."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM trade_signal WHERE action != 'stay_out' ORDER BY generated_at"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_trade_signal_view(dict(row)) for row in rows]
+
+
+def get_signals_needing_return_backfill() -> list[dict]:
+    """Directional signals with at least one un-populated forward-return horizon.
+    Horizons become computable incrementally as calendar days pass, so this is re-checked
+    on every poller run rather than resolved once."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM trade_signal
+            WHERE action != 'stay_out'
+              AND (return_1d IS NULL OR return_3d IS NULL OR return_5d IS NULL
+                   OR return_10d IS NULL OR return_20d IS NULL)
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_trade_signal_view(dict(row)) for row in rows]
+
+
+def update_signal_returns(signal_id: int, **fields) -> None:
+    """Partial update of forward-return columns. Only whitelisted columns are ever written —
+    this never touches direction/confidence/price_at_signal, the fields a look-ahead-bias bug
+    would otherwise be tempted to "correct" after the fact."""
+    columns = [c for c in fields if c in TRADE_SIGNAL_RETURN_COLUMNS]
+    if not columns:
+        return
+    set_clause = ", ".join(f"{c} = ?" for c in columns)
+    values = [fields[c] for c in columns]
+    conn = get_connection()
+    try:
+        conn.execute(f"UPDATE trade_signal SET {set_clause} WHERE id = ?", (*values, signal_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def insert_news_item(

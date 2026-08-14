@@ -79,7 +79,9 @@ async def _get_fundamentals(symbol: str) -> tuple[dict, str | None]:
     }, None
 
 
-async def _get_chart_data(symbol: str) -> tuple[list[dict], str | None]:
+async def get_chart_data(symbol: str) -> tuple[list[dict], str | None]:
+    """Cached daily OHLCV series for a symbol. Public: also used by the signal evaluator to
+    compute forward returns without spending a separate Alpha Vantage call per lookup."""
     cached = get_cached_chart(symbol)
     if cached is not None:
         return cached, None
@@ -263,7 +265,7 @@ async def gather_context(symbol: str) -> dict:
         raise ValueError(f"No price data found for symbol '{symbol}'")
 
     fundamentals, fundamentals_err = await _get_fundamentals(symbol)
-    chart_data, chart_err = await _get_chart_data(symbol)
+    chart_data, chart_err = await get_chart_data(symbol)
     news, news_err = await _get_news(symbol)
     filings, filings_err = await _get_filings(symbol)
 
