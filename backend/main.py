@@ -10,6 +10,17 @@ app = FastAPI(title="Nexus Terminal API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
+    # Also allow the frontend when it's opened from another device on the same private network
+    # (e.g. http://192.168.1.42:3000). Scoped to RFC 1918 private ranges + localhost on port
+    # 3000 specifically — not a public wildcard — since this is a personal LAN convenience, not
+    # a hardening story for exposing the app to the open internet.
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1"
+        r"|10(?:\.\d{1,3}){3}"
+        r"|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}"
+        r"|192\.168(?:\.\d{1,3}){2}"
+        r"):3000"
+    ),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )

@@ -34,7 +34,7 @@ env 'arcadedb.server.rootPassword=<see backend/.env ARCADEDB_PASSWORD>' bin/serv
 
 # 2. Backend
 cd nexus-terminal/backend
-venv/bin/python -m uvicorn main:app --port 8000
+venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 # 3. Frontend
 cd nexus-terminal/frontend
@@ -50,7 +50,7 @@ env 'arcadedb.server.rootPassword=<see backend/.env ARCADEDB_PASSWORD>' bin/serv
 
 # 2. Backend
 cd nexus-terminal/backend
-venv\Scripts\python -m uvicorn main:app --port 8000
+venv\Scripts\python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 # 3. Frontend
 cd nexus-terminal/frontend
@@ -59,6 +59,14 @@ npm run dev
 
 Then open http://localhost:3000. Backend API docs: http://localhost:8000/docs. ArcadeDB Studio:
 http://localhost:2480.
+
+**Access from another device on the same network:** `--host 0.0.0.0` on the backend and
+`npm run dev`'s own default (it already binds all interfaces and prints a "Network" URL) are
+enough — the frontend detects the host it was loaded from and points API calls there instead of
+`localhost`, and the backend's CORS config accepts requests from private-network origins. Share
+the machine's LAN IP with the "Network" URL Next.js prints, e.g. `http://192.168.1.42:3000`.
+This is a personal-network convenience, not authenticated multi-user access — anyone who can
+reach the machine on that network can use the app and its configured API keys.
 
 ## Required API keys
 

@@ -1,6 +1,17 @@
 import type { TechnicalSnapshot } from "./technicalSnapshot";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+// Defaults to whatever host the page itself was loaded from (localhost, 127.0.0.1, or a LAN IP
+// like 192.168.x.x) rather than hardcoding 127.0.0.1 — that hardcoded value only ever resolves
+// to the *visiting device's own* loopback, which breaks API calls for anyone opening this app
+// from another machine on the network. NEXT_PUBLIC_API_BASE_URL still overrides this outright
+// when the backend genuinely lives on a different host.
+function resolveApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) return process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (typeof window !== "undefined") return `http://${window.location.hostname}:8000`;
+  return "http://127.0.0.1:8000";
+}
+
+const API_BASE = resolveApiBase();
 
 export interface TickerPrice {
   last: number;
