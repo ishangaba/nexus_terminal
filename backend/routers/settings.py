@@ -11,6 +11,7 @@ KEY_LABELS = {
     "finnhub_api_key": "Finnhub",
     "anthropic_api_key": "Anthropic",
     "marketaux_api_key": "Marketaux",
+    "fred_api_key": "FRED",
 }
 
 
@@ -27,6 +28,7 @@ class SettingsUpdate(BaseModel):
     finnhub_api_key: str | None = None
     anthropic_api_key: str | None = None
     marketaux_api_key: str | None = None
+    fred_api_key: str | None = None
 
 
 @router.get("")

@@ -7,7 +7,13 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-const FIELD_ORDER: SettingsKey[] = ["alpha_vantage_api_key", "finnhub_api_key", "marketaux_api_key", "anthropic_api_key"];
+const FIELD_ORDER: SettingsKey[] = [
+  "alpha_vantage_api_key",
+  "finnhub_api_key",
+  "marketaux_api_key",
+  "fred_api_key",
+  "anthropic_api_key",
+];
 
 const KEY_INFO: Record<SettingsKey, { pricing: string; free: boolean; url: string; blurb: string }> = {
   alpha_vantage_api_key: {
@@ -27,6 +33,12 @@ const KEY_INFO: Record<SettingsKey, { pricing: string; free: boolean; url: strin
     free: true,
     url: "https://www.marketaux.com/pricing",
     blurb: "Adds broader news-source diversity (5,000+ outlets, e.g. Nasdaq, TechCrunch) alongside Finnhub. Optional — news still works without it.",
+  },
+  fred_api_key: {
+    pricing: "Free · no card required",
+    free: true,
+    url: "https://fred.stlouisfed.org/docs/api/api_key.html",
+    blurb: "Federal Reserve economic data (CPI, unemployment, GDP, Fed funds rate) — powers macro-event evidence.",
   },
   anthropic_api_key: {
     pricing: "Paid · pay-as-you-go",

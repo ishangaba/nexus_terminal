@@ -277,7 +277,12 @@ export async function askAboutTicker(symbol: string, question: string, graph?: C
   return data.answer;
 }
 
-export type SettingsKey = "alpha_vantage_api_key" | "finnhub_api_key" | "anthropic_api_key" | "marketaux_api_key";
+export type SettingsKey =
+  | "alpha_vantage_api_key"
+  | "finnhub_api_key"
+  | "anthropic_api_key"
+  | "marketaux_api_key"
+  | "fred_api_key";
 
 export interface SettingStatus {
   label: string;
@@ -401,4 +406,36 @@ export async function closePosition(id: number, input: PositionCloseInput): Prom
 export async function deletePosition(id: number): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/portfolio/positions/${id}`, { method: "DELETE" });
   await handleResponse(res);
+}
+
+// --- Research (evidence-grounded intelligence platform — /api/research, not /api/v1) ---
+
+export type ResearchStance = "strong_bullish" | "bullish" | "neutral" | "bearish" | "strong_bearish";
+
+export interface ResearchThesis {
+  ticker: string;
+  stance: ResearchStance;
+  confidence: number;
+  executive_summary: string;
+  bullish_factors: string[];
+  bearish_factors: string[];
+  catalysts: string[];
+  key_risks: string[];
+  invalidation_conditions: string[];
+  evidence_ids: string[];
+  generated_at: string;
+}
+
+export interface ResearchQueryResponse {
+  thesis: ResearchThesis;
+  tools_used: string[];
+}
+
+export async function askResearch(ticker: string, question: string): Promise<ResearchQueryResponse> {
+  const res = await fetch(`${API_BASE}/api/research/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker, question }),
+  });
+  return handleResponse<ResearchQueryResponse>(res);
 }

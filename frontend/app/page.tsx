@@ -12,6 +12,7 @@ import Skeleton from "@/components/Skeleton";
 import Filings from "@/components/Filings";
 import AskBox from "@/components/AskBox";
 import TradeSignal from "@/components/TradeSignal";
+import Research from "@/components/Research";
 import SentimentGauge from "@/components/SentimentGauge";
 import MarketStatus from "@/components/MarketStatus";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -235,6 +236,7 @@ export default function Home() {
                 <AIBrief brief={brief} loading={briefLoading} error={briefError} />
                 <AskBox symbol={data.symbol} graph={graph} />
                 <TradeSignal data={data} />
+                <Research symbol={data.symbol} />
               </div>
               <Filings filings={data.filings} error={data.errors?.filings} />
 

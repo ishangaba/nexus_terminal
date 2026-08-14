@@ -1,10 +1,14 @@
 import json
+from datetime import datetime, timezone
 from typing import Literal
 
 import anthropic
 from pydantic import BaseModel, ValidationError
 
 from config import settings
+from intelligence.models.evidence import Evidence
+from intelligence.models.findings import AnalyticalFinding
+from intelligence.models.thesis import ResearchThesis
 from services.errors import ProviderError
 
 PROVIDER = "Anthropic"
@@ -37,6 +41,9 @@ EXTRACTION_MODEL = "claude-haiku-4-5"
 # and decisive follow-up answers about it), and the cost delta is negligible at this app's volume.
 SIGNAL_MODEL = "claude-opus-5"
 SIGNAL_ASK_MODEL = "claude-opus-5"
+# Research synthesis reasons over pre-computed findings/evidence rather than raw provider data,
+# and isn't a standalone trade verdict — same stakes tier as the brief/ask/graph-insights work.
+SYNTHESIS_MODEL = "claude-sonnet-5"
 
 SIGNAL_DISCLAIMER = "Informational synthesis of available data — not registered investment advice."
 
@@ -397,6 +404,120 @@ def extract_relationships(symbol: str, headlines: list[str]) -> list[NewsRelatio
     if response.parsed_output is None:
         return []
     return [r for r in response.parsed_output.relationships if r.other_ticker]
+
+
+RESEARCH_SYNTHESIS_SYSTEM_PROMPT = (
+    "You are a research synthesis engine. You will be given a set of ANALYTICAL FINDINGS — "
+    "each already produced by a deterministic tool (technical analysis, news sentiment "
+    "aggregation, etc.) — plus the underlying EVIDENCE those findings cite. You are not being "
+    "given raw, unanalyzed data: the deterministic work is already done. Your job is to "
+    "synthesize these findings into one coherent research thesis. "
+    "Every finding in the input was successfully computed and is present for a reason — account "
+    "for each one in your synthesis. Before writing your summary, verify you have addressed "
+    "every finding category you were given (e.g. if a 'technical' finding is present, your "
+    "thesis must reflect it — never state or imply that a category of analysis is missing or "
+    "unavailable when a finding for it was actually provided). "
+    "Ground every claim you make in the findings and evidence you were given — never invent a "
+    "fact, a number, or a data point that isn't present in the input. When a finding is a "
+    "genuine observation (a computed indicator value, a filing that exists), treat it as fact. "
+    "When a finding reflects an interpretation (a sentiment score, a directional read on mixed "
+    "signals), treat it as an inference and weigh it accordingly rather than restating it as "
+    "certain. If the findings don't cover something relevant (e.g. no fundamentals finding was "
+    "provided), do not speculate about it — leave it out rather than filling the gap from "
+    "outside knowledge. Where findings disagree with each other, say so explicitly and explain "
+    "which one you weighted more heavily and why, rather than silently averaging them. A "
+    "finding's own confidence score matters: weigh a high-confidence, risk-free finding more "
+    "heavily than a low-confidence one, and reflect that in your stance rather than treating all "
+    "findings as equally decisive. Every bullish_factor, bearish_factor, catalyst, risk, and "
+    "invalidation_condition should trace back to something in the given findings — do not add "
+    "generic boilerplate that could apply to any stock."
+)
+
+RESEARCH_QUERY_ADDENDUM = (
+    "The user asked a specific question, given below as 'user_question'. Your executive_summary "
+    "must directly and specifically answer that question first, before any broader context — "
+    "do not just restate a generic thesis and leave the reader to infer the answer. If the given "
+    "findings don't contain enough information to fully answer it, say so explicitly rather than "
+    "filling the gap from outside knowledge."
+)
+
+
+class ResearchThesisDraft(BaseModel):
+    """What Claude actually produces. `ticker`, `evidence_ids`, and `generated_at` on the final
+    ResearchThesis are set in Python from data we already have authoritatively — never trusting
+    the model for identifiers or timestamps it didn't generate."""
+
+    stance: Literal["strong_bullish", "bullish", "neutral", "bearish", "strong_bearish"]
+    confidence: float
+    executive_summary: str
+    bullish_factors: list[str]
+    bearish_factors: list[str]
+    catalysts: list[str]
+    key_risks: list[str]
+    invalidation_conditions: list[str]
+
+
+def _serialize_findings(findings: list[AnalyticalFinding]) -> list[dict]:
+    return [f.model_dump() for f in findings]
+
+
+def _serialize_evidence_summary(evidence: list[Evidence]) -> list[dict]:
+    return [
+        {
+            "id": e.id,
+            "type": e.evidence_type.value,
+            "source": e.source,
+            "confidence": e.confidence,
+            "value": e.normalized_value if e.normalized_value is not None else e.value,
+        }
+        for e in evidence
+    ]
+
+
+def synthesize_research(
+    ticker: str,
+    findings: list[AnalyticalFinding],
+    evidence: list[Evidence],
+    question: str | None = None,
+) -> ResearchThesis:
+    payload = {
+        "ticker": ticker,
+        "findings": _serialize_findings(findings),
+        "evidence": _serialize_evidence_summary(evidence),
+    }
+    system_prompt = RESEARCH_SYNTHESIS_SYSTEM_PROMPT
+    if question:
+        payload["user_question"] = question
+        system_prompt = f"{RESEARCH_SYNTHESIS_SYSTEM_PROMPT}\n\n{RESEARCH_QUERY_ADDENDUM}"
+
+    try:
+        response = _client.messages.parse(
+            model=SYNTHESIS_MODEL,
+            max_tokens=2000,
+            output_config={"effort": "medium"},
+            system=system_prompt,
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+            output_format=ResearchThesisDraft,
+        )
+    except anthropic.APIError as exc:
+        raise _wrap_anthropic_error(exc) from exc
+    except ValidationError as exc:
+        raise ProviderError(PROVIDER, f"{PROVIDER}: response was cut off before it could be parsed — try again.") from exc
+
+    draft = response.parsed_output
+    return ResearchThesis(
+        ticker=ticker,
+        stance=draft.stance,
+        confidence=draft.confidence,
+        executive_summary=draft.executive_summary,
+        bullish_factors=draft.bullish_factors,
+        bearish_factors=draft.bearish_factors,
+        catalysts=draft.catalysts,
+        key_risks=draft.key_risks,
+        invalidation_conditions=draft.invalidation_conditions,
+        evidence_ids=[e.id for e in evidence],
+        generated_at=datetime.now(timezone.utc),
+    )
 
 
 def score_sentiment(headline: str) -> float | None:
